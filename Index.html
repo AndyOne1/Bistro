@@ -78,25 +78,50 @@
 
     // Central styling map (category colors)
     const CATEGORY_STYLES = {
-      Getränke: {
-        button: "bg-blue-500 hover:bg-blue-600",
-        badge: "bg-blue-50 text-blue-700 border-blue-200",
-      },
-      Snacks: {
-        button: "bg-amber-500 hover:bg-amber-600",
-        badge: "bg-amber-50 text-amber-800 border-amber-200",
-      },
-      Eis: {
-        button: "bg-fuchsia-500 hover:bg-fuchsia-600",
-        badge: "bg-fuchsia-50 text-fuchsia-800 border-fuchsia-200",
-      },
+      Getränke: { button: "bg-blue-500 hover:bg-blue-600", badge: "bg-blue-50 text-blue-700 border-blue-200" },
+      Snacks: { button: "bg-amber-500 hover:bg-amber-600", badge: "bg-amber-50 text-amber-800 border-amber-200" },
+      Eis:     { button: "bg-fuchsia-500 hover:bg-fuchsia-600", badge: "bg-fuchsia-50 text-fuchsia-800 border-fuchsia-200" },
     };
+
+    // === INVENTAR TEMPLATES (Demo/Test) ===
+    // Morgen kannst du einfach hier das Standard-Template austauschen/ergänzen.
+    const INVENTORY_TEMPLATES = [
+      {
+        id: "demo_template_v1",
+        name: "Test-Template (Demo)",
+        description: "Beispiel-Inventar für Start/Tests (kann morgen ersetzt werden).",
+        items: [
+          // Getränke
+          { name: "Wasser", price: 1.00, category: "Getränke" },
+          { name: "Cola", price: 1.50, category: "Getränke" },
+          { name: "Kaffee", price: 1.20, category: "Getränke" },
+          // Snacks
+          { name: "Chips", price: 1.20, category: "Snacks" },
+          { name: "Schokoriegel", price: 0.90, category: "Snacks" },
+          // Eis
+          { name: "Eis am Stiel", price: 1.20, category: "Eis" },
+        ],
+      },
+    ];
 
     // Helpers
     const newId = () =>
       (crypto && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
     const asMoney = (n) => (Number(n) || 0).toFixed(2);
+
+    const normalizeCategory = (cat) => (cat && CATEGORIES.includes(cat)) ? cat : "Getränke";
+
+    // Deterministic template IDs (avoid duplicates & stable across loads)
+    const slugify = (s) =>
+      String(s || "")
+        .toLowerCase()
+        .trim()
+        .replace(/\s+/g, "-")
+        .replace(/[^a-z0-9\-äöüß]/g, "")
+        .slice(0, 64);
+
+    const templateItemId = (templateId, item) => `tpl:${templateId}:${normalizeCategory(item.category)}:${slugify(item.name)}`;
 
     const BistroKasse = () => {
       const [articles, setArticles] = useState([]);
@@ -119,10 +144,18 @@
       const [editingId, setEditingId] = useState(null);
       const [editDraft, setEditDraft] = useState({ name: "", price: "", category: "Getränke" });
 
+      // Template state
+      const [activeTemplateId, setActiveTemplateId] = useState(null);
+      const [templateSelection, setTemplateSelection] = useState(INVENTORY_TEMPLATES[0]?.id || "");
+
+      // ----- Storage load -----
       useEffect(() => {
         const savedArticles = localStorage.getItem("bistro-articles");
         const savedDailySales = localStorage.getItem("bistro-daily-sales");
         const savedDaysData = localStorage.getItem("bistro-saved-days");
+        const savedTemplateId = localStorage.getItem("bistro-active-template-id");
+
+        if (savedTemplateId) setActiveTemplateId(savedTemplateId);
 
         if (savedArticles) {
           const parsed = JSON.parse(savedArticles);
@@ -131,7 +164,7 @@
                 id: a.id || newId(),
                 name: a.name || "",
                 price: typeof a.price === "number" ? a.price : parseFloat(a.price),
-                category: a.category && CATEGORIES.includes(a.category) ? a.category : "Getränke",
+                category: normalizeCategory(a.category),
               })).filter((a) => a.name && !Number.isNaN(a.price))
             : [];
           setArticles(migrated);
@@ -159,6 +192,7 @@
         if (savedDaysData) setSavedDays(JSON.parse(savedDaysData));
       }, []);
 
+      // ----- Storage save -----
       useEffect(() => {
         localStorage.setItem("bistro-articles", JSON.stringify(articles));
       }, [articles]);
@@ -171,18 +205,74 @@
         localStorage.setItem("bistro-saved-days", JSON.stringify(savedDays));
       }, [savedDays]);
 
+      useEffect(() => {
+        if (activeTemplateId) localStorage.setItem("bistro-active-template-id", activeTemplateId);
+        else localStorage.removeItem("bistro-active-template-id");
+      }, [activeTemplateId]);
+
+      // Pfand items
       const pfandInItem = useMemo(() => ({ id: "pfand_in", name: "Pfand Einnahme", price: 0.25, category: "Pfand" }), []);
       const pfandOutItem = useMemo(() => ({ id: "pfand_out", name: "Pfand Ausgabe", price: -0.25, category: "Pfand" }), []);
 
       const categorizedArticles = useMemo(() => {
         const grouped = CATEGORIES.reduce((acc, cat) => (acc[cat] = [], acc), {});
         for (const a of articles) {
-          const cat = (a.category && CATEGORIES.includes(a.category)) ? a.category : "Getränke";
-          grouped[cat].push(a);
+          grouped[normalizeCategory(a.category)].push(a);
         }
         return grouped;
       }, [articles]);
 
+      // === Template apply logic ===
+      const getTemplateById = (id) => INVENTORY_TEMPLATES.find((t) => t.id === id) || null;
+
+      const applyTemplate = (templateId) => {
+        const tpl = getTemplateById(templateId);
+        if (!tpl) return;
+
+        setArticles((prev) => {
+          const existingKey = new Set(prev.map((a) => `${normalizeCategory(a.category)}|${a.name}`));
+          const additions = [];
+
+          for (const item of tpl.items) {
+            const name = (item.name || "").trim();
+            const price = Number(item.price);
+            const category = normalizeCategory(item.category);
+            if (!name || Number.isNaN(price)) continue;
+
+            const key = `${category}|${name}`;
+            if (existingKey.has(key)) continue;
+
+            additions.push({
+              id: templateItemId(tpl.id, { name, category }),
+              name,
+              price,
+              category,
+            });
+            existingKey.add(key);
+          }
+
+          return additions.length ? [...prev, ...additions] : prev;
+        });
+      };
+
+      const activateTemplate = (templateId) => {
+        setActiveTemplateId(templateId);
+        applyTemplate(templateId);
+      };
+
+      const deactivateTemplate = () => {
+        setActiveTemplateId(null);
+      };
+
+      // Auto-Apply: if template active AND inventory empty => apply on start
+      useEffect(() => {
+        if (!activeTemplateId) return;
+        if (articles.length !== 0) return;
+        applyTemplate(activeTemplateId);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [activeTemplateId, articles.length]);
+
+      // ---- Transaction logic ----
       const addToTransaction = (item) => {
         setCurrentTransaction((prev) => [...prev, item]);
 
@@ -220,13 +310,39 @@
 
       const calculateTotal = () => currentTransaction.reduce((sum, item) => sum + item.price, 0);
 
+      // Leeren (inkl. dailySales rollback)
+      const clearTransaction = () => {
+        if (currentTransaction.length === 0) return;
+
+        setDailySales((salesPrev) => {
+          const next = { ...salesPrev };
+
+          for (const item of currentTransaction) {
+            const key = item.id || `legacy-${item.name}`;
+            if (!next[key]) continue;
+
+            next[key].count -= 1;
+            next[key].revenue -= item.price;
+
+            if (next[key].count <= 0) delete next[key];
+          }
+          return next;
+        });
+
+        setCurrentTransaction([]);
+        setGivenAmount(0);
+      };
+
+      // ---- Article CRUD ----
       const handleAddArticle = () => {
         if (!newArticle.name || !newArticle.price) return;
         const price = parseFloat(newArticle.price);
         if (Number.isNaN(price)) return;
 
-        const category = CATEGORIES.includes(newArticle.category) ? newArticle.category : "Getränke";
-        const article = { id: newId(), name: newArticle.name, price, category };
+        const category = normalizeCategory(newArticle.category);
+        const article = { id: newId(), name: newArticle.name.trim(), price, category };
+
+        if (!article.name) return;
 
         setArticles((prev) => [...prev, article]);
         setNewArticle({ name: "", price: "", category: "Getränke" });
@@ -238,7 +354,7 @@
 
       const startEdit = (article) => {
         setEditingId(article.id);
-        setEditDraft({ name: article.name, price: String(article.price), category: article.category || "Getränke" });
+        setEditDraft({ name: article.name, price: String(article.price), category: normalizeCategory(article.category) });
       };
 
       const cancelEdit = () => {
@@ -253,12 +369,14 @@
         const price = parseFloat(editDraft.price);
         if (Number.isNaN(price)) return;
 
-        const category = CATEGORIES.includes(editDraft.category) ? editDraft.category : "Getränke";
+        const category = normalizeCategory(editDraft.category);
+        const name = editDraft.name.trim();
+        if (!name) return;
 
         setArticles((prev) =>
           prev.map((a) =>
             a.id === editingId
-              ? { ...a, name: editDraft.name, price, category }
+              ? { ...a, name, price, category }
               : a
           )
         );
@@ -266,6 +384,7 @@
         cancelEdit();
       };
 
+      // ---- Payment ----
       const addToGivenAmount = (amount) => setGivenAmount((prev) => prev + amount);
       const calculateChange = () => givenAmount - calculateTotal();
 
@@ -275,6 +394,7 @@
         setShowPayment(false);
       };
 
+      // ---- Day stats & archive ----
       const getDayStats = () => {
         let pfandIn = 0;
         let pfandOut = 0;
@@ -299,12 +419,7 @@
         const today = new Date().toLocaleDateString("de-DE");
         const totalRevenue = Object.values(dailySales).reduce((sum, item) => sum + item.revenue, 0);
 
-        const dayData = {
-          date: today,
-          sales: { ...dailySales },
-          totalRevenue,
-        };
-
+        const dayData = { date: today, sales: { ...dailySales }, totalRevenue };
         setSavedDays((prev) => [dayData, ...prev]);
         setDailySales({});
       };
@@ -313,30 +428,6 @@
         const ok = window.confirm("Diesen Tag wirklich löschen?");
         if (!ok) return;
         setSavedDays((prev) => prev.filter((_, i) => i !== index));
-      };
-
-      // NEU: Leeren macht auch dailySales rückgängig (wie kompletter Undo)
-      const clearTransaction = () => {
-        if (currentTransaction.length === 0) return;
-
-        setDailySales((salesPrev) => {
-          const next = { ...salesPrev };
-
-          for (const item of currentTransaction) {
-            const key = item.id || `legacy-${item.name}`;
-            if (!next[key]) continue;
-
-            next[key].count -= 1;
-            next[key].revenue -= item.price;
-
-            if (next[key].count <= 0) delete next[key];
-          }
-
-          return next;
-        });
-
-        setCurrentTransaction([]);
-        setGivenAmount(0);
       };
 
       const stats = getDayStats();
@@ -492,7 +583,6 @@
                   </div>
                 </div>
               </div>
-
               <p className="text-xs text-gray-400 mt-2 text-center">
                 Hinweis: Der Vorgang bleibt unten sichtbar; die Artikelliste kann unabhängig gescrollt werden.
               </p>
@@ -510,6 +600,71 @@
                   </button>
                 </div>
 
+                {/* Templates */}
+                <div className="mb-8 p-4 rounded-lg border bg-gray-50">
+                  <h3 className="text-lg font-semibold mb-2 text-gray-700">Inventar-Templates</h3>
+                  <p className="text-sm text-gray-600 mb-4">
+                    Damit kann ein Gerät schnell ein Standard-Inventar übernehmen. Aktiviert bleibt es als Standard gespeichert,
+                    bis du es deaktivierst.
+                  </p>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2 items-start">
+                    <select
+                      value={templateSelection}
+                      onChange={(e) => setTemplateSelection(e.target.value)}
+                      className="md:col-span-2 w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                    >
+                      {INVENTORY_TEMPLATES.map((t) => (
+                        <option key={t.id} value={t.id}>{t.name}</option>
+                      ))}
+                    </select>
+
+                    <div className="flex md:flex-col gap-2">
+                      <button
+                        onClick={() => activateTemplate(templateSelection)}
+                        className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition"
+                        title="Template aktivieren (fügt fehlende Artikel hinzu)"
+                      >
+                        Aktivieren
+                      </button>
+
+                      <button
+                        onClick={() => applyTemplate(activeTemplateId || templateSelection)}
+                        className="flex-1 px-4 py-2 bg-white border rounded-lg font-semibold hover:bg-gray-100 transition disabled:opacity-50"
+                        disabled={!activeTemplateId && !templateSelection}
+                        title="Template erneut anwenden (fügt nur fehlende Artikel hinzu)"
+                      >
+                        Erneut anwenden
+                      </button>
+
+                      <button
+                        onClick={deactivateTemplate}
+                        className="flex-1 px-4 py-2 bg-gray-400 text-white rounded-lg font-semibold hover:bg-gray-500 transition disabled:opacity-50"
+                        disabled={!activeTemplateId}
+                        title="Template als Standard deaktivieren"
+                      >
+                        Deaktivieren
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 text-sm">
+                    <div className="flex items-center justify-between p-3 bg-white rounded-lg border">
+                      <span className="text-gray-700 font-medium">Aktives Standard-Template:</span>
+                      <span className={`font-semibold ${activeTemplateId ? "text-green-700" : "text-gray-500"}`}>
+                        {activeTemplateId ? (getTemplateById(activeTemplateId)?.name || activeTemplateId) : "Keins"}
+                      </span>
+                    </div>
+
+                    {templateSelection && (
+                      <div className="mt-2 text-gray-600">
+                        {getTemplateById(templateSelection)?.description || ""}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Add new article */}
                 <div className="mb-6">
                   <h3 className="text-lg font-semibold mb-3 text-gray-700">Neuer Artikel</h3>
                   <div className="flex flex-col md:flex-row gap-2">
@@ -547,12 +702,13 @@
                   </div>
                 </div>
 
+                {/* Existing articles */}
                 <div>
                   <h3 className="text-lg font-semibold mb-3 text-gray-700">Vorhandene Artikel</h3>
                   <div className="space-y-2">
                     {articles.map((article) => {
                       const isEditing = editingId === article.id;
-                      const badge = CATEGORY_STYLES[article.category || "Getränke"]?.badge || "bg-gray-50 text-gray-700 border-gray-200";
+                      const badge = CATEGORY_STYLES[normalizeCategory(article.category)]?.badge || "bg-gray-50 text-gray-700 border-gray-200";
                       return (
                         <div key={article.id} className="p-3 bg-gray-50 rounded-lg">
                           {!isEditing ? (
@@ -561,7 +717,7 @@
                                 <div className="font-medium text-gray-700 truncate">{article.name}</div>
                                 <div className="mt-1 flex items-center gap-2">
                                   <span className={`text-xs px-2 py-0.5 rounded-full border ${badge}`}>
-                                    {article.category || "Getränke"}
+                                    {normalizeCategory(article.category)}
                                   </span>
                                   <span className="text-blue-600 font-semibold">{asMoney(article.price)}€</span>
                                 </div>
@@ -636,7 +792,6 @@
                   </div>
                 </div>
 
-                {/* HINWEIS-BOX ENTFERNT (rot markierter Text) */}
               </div>
             </div>
           )}
@@ -647,10 +802,7 @@
               <div className="bg-white rounded-lg max-w-md w-full p-6">
                 <div className="flex justify-between items-center mb-6">
                   <h2 className="text-2xl font-bold text-gray-800">Bezahlung</h2>
-                  <button
-                    onClick={() => { setShowPayment(false); setGivenAmount(0); }}
-                    className="text-gray-500 hover:text-gray-700"
-                  >
+                  <button onClick={() => { setShowPayment(false); setGivenAmount(0); }} className="text-gray-500 hover:text-gray-700">
                     <X />
                   </button>
                 </div>
@@ -675,7 +827,7 @@
                 </div>
 
                 <div className="grid grid-cols-5 gap-2 mb-4">
-                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((amount) => (
+                  {[1,2,3,4,5,6,7,8,9,10].map((amount) => (
                     <button
                       key={amount}
                       onClick={() => addToGivenAmount(amount)}
@@ -807,9 +959,7 @@
                             {day.sales && Object.values(day.sales).map((data) => (
                               <div key={data.id || data.name} className="flex justify-between text-gray-600">
                                 <span>{data.name}:</span>
-                                <span>
-                                  {data.count}x ({asMoney(data.revenue)}€)
-                                </span>
+                                <span>{data.count}x ({asMoney(data.revenue)}€)</span>
                               </div>
                             ))}
                           </div>
