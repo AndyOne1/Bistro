@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bistro Kasse</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+    <div id="root"></div>
+    <script type="text/babel">
+        import React, { useState, useEffect } from ‘react’;
+import { Settings, Calendar, X, Plus, Trash2 } from ‘lucide-react’;
+
+const BistroKasse = () => {
+// State Management
+const [articles, setArticles] = useState([]);
+const [currentTransaction, setCurrentTransaction] = useState([]);
+const [showSettings, setShowSettings] = useState(false);
+const [showPayment, setShowPayment] = useState(false);
+const [showDayReport, setShowDayReport] = useState(false);
+const [givenAmount, setGivenAmount] = useState(0);
+const [dailySales, setDailySales] = useState({});
+const [savedDays, setSavedDays] = useState([]);
+const [newArticle, setNewArticle] = useState({ name: ‘’, price: ‘’ });
+
+// Load data from localStorage on mount
+useEffect(() => {
+const savedArticles = localStorage.getItem(‘bistro-articles’);
+const savedDailySales = localStorage.getItem(‘bistro-daily-sales’);
+const savedDaysData = localStorage.getItem(‘bistro-saved-days’);
+
+```
+if (savedArticles) setArticles(JSON.parse(savedArticles));
+if (savedDailySales) setDailySales(JSON.parse(savedDailySales));
+if (savedDaysData) setSavedDays(JSON.parse(savedDaysData));
+```
+
+}, []);
+
+// Save to localStorage whenever data changes
+useEffect(() => {
+localStorage.setItem(‘bistro-articles’, JSON.stringify(articles));
+}, [articles]);
+
+useEffect(() => {
+localStorage.setItem(‘bistro-daily-sales’, JSON.stringify(dailySales));
+}, [dailySales]);
+
+useEffect(() => {
+localStorage.setItem(‘bistro-saved-days’, JSON.stringify(savedDays));
+}, [savedDays]);
+
+// Add article to transaction
+const addToTransaction = (article) => {
+setCurrentTransaction([…currentTransaction, article]);
+
+```
+// Update daily sales
+const newDailySales = { ...dailySales };
+if (!newDailySales[article.name]) {
+  newDailySales[article.name] = { count: 0, revenue: 0 };
+}
+newDailySales[article.name].count += 1;
+newDailySales[article.name].revenue += article.price;
+setDailySales(newDailySales);
+```
+
+};
+
+// Calculate total
+const calculateTotal = () => {
+return currentTransaction.reduce((sum, item) => sum + item.price, 0);
+};
+
+// Add new article
+const handleAddArticle = () => {
+if (newArticle.name && newArticle.price) {
+const price = parseFloat(newArticle.price);
+if (!isNaN(price)) {
+setArticles([…articles, { name: newArticle.name, price }]);
+setNewArticle({ name: ‘’, price: ‘’ });
+}
+}
+};
+
+// Delete article
+const handleDeleteArticle = (index) => {
+const newArticles = articles.filter((_, i) => i !== index);
+setArticles(newArticles);
+};
+
+// Payment handlers
+const addToGivenAmount = (amount) => {
+setGivenAmount(givenAmount + amount);
+};
+
+const calculateChange = () => {
+return givenAmount - calculateTotal();
+};
+
+// Complete transaction
+const completeTransaction = () => {
+setCurrentTransaction([]);
+setGivenAmount(0);
+setShowPayment(false);
+};
+
+// Close day and save
+const closeDay = () => {
+const today = new Date().toLocaleDateString(‘de-DE’);
+const dayData = {
+date: today,
+sales: { …dailySales },
+totalRevenue: Object.values(dailySales).reduce((sum, item) => sum + item.revenue, 0)
+};
+
+```
+setSavedDays([dayData, ...savedDays]);
+setDailySales({});
+```
+
+};
+
+// Calculate day statistics
+const getDayStats = () => {
+let pfandIn = 0;
+let pfandOut = 0;
+let merchandise = 0;
+
+```
+Object.entries(dailySales).forEach(([name, data]) => {
+  if (name === 'Pfand Einnahme') {
+    pfandIn = data.revenue;
+  } else if (name === 'Pfand Ausgabe') {
+    pfandOut = data.revenue;
+  } else {
+    merchandise += data.revenue;
+  }
+});
+
+return {
+  pfandIn,
+  pfandOut,
+  pfandBalance: pfandIn + pfandOut,
+  merchandise,
+  total: pfandIn + pfandOut + merchandise
+};
+```
+
+};
+
+const stats = getDayStats();
+
+return (
+<div className="min-h-screen bg-gray-50 p-4">
+{/* Header */}
+<div className="max-w-7xl mx-auto mb-6">
+<div className="flex justify-between items-center">
+<h1 className="text-3xl font-bold text-gray-800">Bistro Kasse</h1>
+<div className="flex gap-2">
+<button
+onClick={() => setShowDayReport(true)}
+className=“p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition”
+>
+<Calendar size={24} />
+</button>
+<button
+onClick={() => setShowSettings(true)}
+className=“p-2 bg-gray-700 text-white rounded-lg hover:bg-gray-800 transition”
+>
+<Settings size={24} />
+</button>
+</div>
+</div>
+</div>
+
+```
+  <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
+    {/* Left: Articles */}
+    <div className="lg:col-span-2">
+      <div className="bg-white rounded-lg shadow-md p-6">
+        <h2 className="text-xl font-semibold mb-4 text-gray-700">Artikel</h2>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+          {/* Standard Pfand Buttons */}
+          <button
+            onClick={() => addToTransaction({ name: 'Pfand Einnahme', price: 0.25 })}
+            className="p-4 bg-green-500 text-white rounded-lg hover:bg-green-600 transition font-semibold"
+          >
+            Pfand Einnahme<br />+0,25€
+          </button>
+          <button
+            onClick={() => addToTransaction({ name: 'Pfand Ausgabe', price: -0.25 })}
+            className="p-4 bg-red-500 text-white rounded-lg hover:bg-red-600 transition font-semibold"
+          >
+            Pfand Ausgabe<br />-0,25€
+          </button>
+          
+          {/* Custom Articles */}
+          {articles.map((article, index) => (
+            <button
+              key={index}
+              onClick={() => addToTransaction(article)}
+              className="p-4 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition font-semibold"
+            >
+              {article.name}<br />
+              {article.price > 0 ? '+' : ''}{article.price.toFixed(2)}€
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+
+    {/* Right: Transaction Overview */}
+    <div className="lg:col-span-1">
+      <div className="bg-white rounded-lg shadow-md p-6">
+        <h2 className="text-xl font-semibold mb-4 text-gray-700">Aktueller Vorgang</h2>
+        <div className="mb-4 max-h-64 overflow-y-auto">
+          {currentTransaction.length === 0 ? (
+            <p className="text-gray-400 text-center py-8">Keine Artikel</p>
+          ) : (
+            currentTransaction.map((item, index) => (
+              <div key={index} className="flex justify-between py-2 border-b">
+                <span className="text-gray-700">{item.name}</span>
+                <span className={`font-semibold ${item.price >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {item.price > 0 ? '+' : ''}{item.price.toFixed(2)}€
+                </span>
+              </div>
+            ))
+          )}
+        </div>
+        
+        <div className="border-t-2 pt-4 mb-4">
+          <div className="flex justify-between items-center">
+            <span className="text-xl font-bold text-gray-800">Gesamt:</span>
+            <span className="text-2xl font-bold text-blue-600">
+              {calculateTotal().toFixed(2)}€
+            </span>
+          </div>
+        </div>
+
+        <button
+          onClick={() => setShowPayment(true)}
+          disabled={currentTransaction.length === 0}
+          className="w-full py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition disabled:bg-gray-300 disabled:cursor-not-allowed"
+        >
+          Zur Bezahlung
+        </button>
+      </div>
+    </div>
+  </div>
+
+  {/* Settings Modal */}
+  {showSettings && (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-lg max-w-2xl w-full max-h-[80vh] overflow-y-auto p-6">
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-2xl font-bold text-gray-800">Einstellungen</h2>
+          <button onClick={() => setShowSettings(false)} className="text-gray-500 hover:text-gray-700">
+            <X size={24} />
+          </button>
+        </div>
+
+        <div className="mb-6">
+          <h3 className="text-lg font-semibold mb-3 text-gray-700">Neuer Artikel</h3>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder="Name"
+              value={newArticle.name}
+              onChange={(e) => setNewArticle({ ...newArticle, name: e.target.value })}
+              className="flex-1 px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <input
+              type="number"
+              step="0.01"
+              placeholder="Preis (€)"
+              value={newArticle.price}
+              onChange={(e) => setNewArticle({ ...newArticle, price: e.target.value })}
+              className="w-32 px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <button
+              onClick={handleAddArticle}
+              className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition"
+            >
+              <Plus size={20} />
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <h3 className="text-lg font-semibold mb-3 text-gray-700">Vorhandene Artikel</h3>
+          <div className="space-y-2">
+            {articles.map((article, index) => (
+              <div key={index} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                <span className="font-medium text-gray-700">{article.name}</span>
+                <div className="flex items-center gap-3">
+                  <span className="text-blue-600 font-semibold">{article.price.toFixed(2)}€</span>
+                  <button
+                    onClick={() => handleDeleteArticle(index)}
+                    className="text-red-500 hover:text-red-700"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )}
+
+  {/* Payment Modal */}
+  {showPayment && (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-lg max-w-md w-full p-6">
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-2xl font-bold text-gray-800">Bezahlung</h2>
+          <button onClick={() => { setShowPayment(false); setGivenAmount(0); }} className="text-gray-500 hover:text-gray-700">
+            <X size={24} />
+          </button>
+        </div>
+
+        <div className="mb-6">
+          <div className="bg-gray-100 p-4 rounded-lg mb-4">
+            <p className="text-gray-600 text-sm">Zu bezahlen:</p>
+            <p className="text-3xl font-bold text-gray-800">{calculateTotal().toFixed(2)}€</p>
+          </div>
+
+          <div className="bg-blue-50 p-4 rounded-lg mb-4">
+            <p className="text-gray-600 text-sm">Gegeben:</p>
+            <p className="text-2xl font-bold text-blue-600">{givenAmount.toFixed(2)}€</p>
+          </div>
+
+          <div className={`p-4 rounded-lg mb-4 ${calculateChange() >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
+            <p className="text-gray-600 text-sm">Rückgeld:</p>
+            <p className={`text-2xl font-bold ${calculateChange() >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+              {calculateChange().toFixed(2)}€
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-5 gap-2 mb-4">
+          {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((amount) => (
+            <button
+              key={amount}
+              onClick={() => addToGivenAmount(amount)}
+              className="p-3 bg-gray-200 hover:bg-gray-300 rounded-lg font-semibold transition"
+            >
+              {amount}€
+            </button>
+          ))}
+        </div>
+
+        <input
+          type="number"
+          step="0.01"
+          value={givenAmount}
+          onChange={(e) => setGivenAmount(parseFloat(e.target.value) || 0)}
+          placeholder="Oder Betrag eingeben..."
+          className="w-full px-4 py-3 border rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+
+        <div className="flex gap-2">
+          <button
+            onClick={() => setGivenAmount(0)}
+            className="flex-1 py-3 bg-gray-400 text-white rounded-lg font-semibold hover:bg-gray-500 transition"
+          >
+            Zurücksetzen
+          </button>
+          <button
+            onClick={completeTransaction}
+            disabled={calculateChange() < 0}
+            className="flex-1 py-3 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition disabled:bg-gray-300 disabled:cursor-not-allowed"
+          >
+            Abschließen
+          </button>
+        </div>
+      </div>
+    </div>
+  )}
+
+  {/* Day Report Modal */}
+  {showDayReport && (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-lg max-w-3xl w-full max-h-[80vh] overflow-y-auto p-6">
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-2xl font-bold text-gray-800">Tagesabschluss</h2>
+          <button onClick={() => setShowDayReport(false)} className="text-gray-500 hover:text-gray-700">
+            <X size={24} />
+          </button>
+        </div>
+
+        {/* Current Day */}
+        <div className="mb-8 p-6 bg-blue-50 rounded-lg">
+          <h3 className="text-xl font-bold mb-4 text-gray-800">Heutiger Tag</h3>
+          
+          <div className="mb-4">
+            <h4 className="font-semibold text-gray-700 mb-2">Verkaufte Artikel:</h4>
+            <div className="space-y-1">
+              {Object.entries(dailySales).map(([name, data]) => (
+                <div key={name} className="flex justify-between text-gray-600">
+                  <span>{name}:</span>
+                  <span className="font-semibold">{data.count}x</span>
+                </div>
+              ))}
+              {Object.keys(dailySales).length === 0 && (
+                <p className="text-gray-400 text-center py-4">Noch keine Verkäufe heute</p>
+              )}
+            </div>
+          </div>
+
+          <div className="border-t pt-4 space-y-2">
+            <div className="flex justify-between">
+              <span className="text-gray-600">Pfand Einnahmen:</span>
+              <span className="font-semibold text-green-600">+{stats.pfandIn.toFixed(2)}€</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-600">Pfand Ausgaben:</span>
+              <span className="font-semibold text-red-600">{stats.pfandOut.toFixed(2)}€</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-600">Pfand Bilanz:</span>
+              <span className={`font-semibold ${stats.pfandBalance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                {stats.pfandBalance.toFixed(2)}€
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-600">Warenverkauf:</span>
+              <span className="font-semibold text-blue-600">{stats.merchandise.toFixed(2)}€</span>
+            </div>
+            <div className="flex justify-between pt-2 border-t-2">
+              <span className="text-xl font-bold text-gray-800">Gesamteinnahmen:</span>
+              <span className="text-2xl font-bold text-blue-600">{stats.total.toFixed(2)}€</span>
+            </div>
+          </div>
+
+          <button
+            onClick={closeDay}
+            disabled={Object.keys(dailySales).length === 0}
+            className="w-full mt-4 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition disabled:bg-gray-300 disabled:cursor-not-allowed"
+          >
+            Tag abschließen
+          </button>
+        </div>
+
+        {/* Previous Days */}
+        <div>
+          <h3 className="text-xl font-bold mb-4 text-gray-800">Vorherige Tage</h3>
+          {savedDays.length === 0 ? (
+            <p className="text-gray-400 text-center py-8">Noch keine abgeschlossenen Tage</p>
+          ) : (
+            <div className="space-y-4">
+              {savedDays.map((day, index) => (
+                <div key={index} className="p-4 bg-gray-50 rounded-lg">
+                  <div className="flex justify-between items-center mb-3">
+                    <h4 className="font-bold text-gray-800">{day.date}</h4>
+                    <span className="text-lg font-bold text-blue-600">{day.totalRevenue.toFixed(2)}€</span>
+                  </div>
+                  <div className="text-sm space-y-1">
+                    {Object.entries(day.sales).map(([name, data]) => (
+                      <div key={name} className="flex justify-between text-gray-600">
+                        <span>{name}:</span>
+                        <span>{data.count}x ({data.revenue.toFixed(2)}€)</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )}
+</div>
+```
+
+);
+};
+
+export default BistroKasse;
+    </script>
+</body>
+</html>
