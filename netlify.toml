@@ -1,18 +1,3 @@
-# netlify.toml — Netlify configuration for the Bistro project
-# Functions directory points to netlify/functions
-
 [build]
+  publish = "."
   functions = "netlify/functions"
-  publish = "public"
-
-# Optional: local dev command (netlify dev uses package.json:start)
-# command = "npm run build"
-
-# Example redirect to functions (preserve original path after /)
-[[redirects]]
-  from = "/.netlify/functions/*"
-  to = "/.netlify/functions/:splat"
-  status = 200
-  force = false
-
-# You can add environment-specific settings or headers below if needed
