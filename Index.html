@@ -15,14 +15,13 @@
   <script type="text/babel">
     const { useState, useEffect, useMemo } = React;
 
-    // Icons (simple SVG components)
+    // Icons
     const Settings = () => (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <circle cx="12" cy="12" r="3"></circle>
         <path d="M12 1v6m0 6v6m-9-9h6m6 0h6"></path>
       </svg>
     );
-
     const Calendar = () => (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
@@ -31,88 +30,74 @@
         <line x1="3" y1="10" x2="21" y2="10"></line>
       </svg>
     );
-
     const X = () => (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <line x1="18" y1="6" x2="6" y2="18"></line>
         <line x1="6" y1="6" x2="18" y2="18"></line>
       </svg>
     );
-
     const Plus = () => (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <line x1="12" y1="5" x2="12" y2="19"></line>
         <line x1="5" y1="12" x2="19" y2="12"></line>
       </svg>
     );
-
     const Trash2 = () => (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <polyline points="3 6 5 6 21 6"></polyline>
         <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
       </svg>
     );
-
     const Undo = () => (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <path d="M3 7v6h6"></path>
         <path d="M21 17a9 9 0 00-9-9 9 9 0 00-6 2.3L3 13"></path>
       </svg>
     );
-
     const Pencil = () => (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <path d="M12 20h9"></path>
         <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"></path>
       </svg>
     );
-
     const Check = () => (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <path d="M20 6L9 17l-5-5"></path>
       </svg>
     );
+    const Shield = () => (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+      </svg>
+    );
 
-    // Domain constants
     const CATEGORIES = ["Getränke", "Snacks", "Eis"];
-
-    // Central styling map (category colors)
     const CATEGORY_STYLES = {
       Getränke: { button: "bg-blue-500 hover:bg-blue-600", badge: "bg-blue-50 text-blue-700 border-blue-200" },
-      Snacks: { button: "bg-amber-500 hover:bg-amber-600", badge: "bg-amber-50 text-amber-800 border-amber-200" },
+      Snacks:  { button: "bg-amber-500 hover:bg-amber-600", badge: "bg-amber-50 text-amber-800 border-amber-200" },
       Eis:     { button: "bg-fuchsia-500 hover:bg-fuchsia-600", badge: "bg-fuchsia-50 text-fuchsia-800 border-fuchsia-200" },
     };
 
-    // === INVENTAR TEMPLATES (Demo/Test) ===
-    // Morgen kannst du einfach hier das Standard-Template austauschen/ergänzen.
+    // Templates (morgen ersetzen wir items)
     const INVENTORY_TEMPLATES = [
       {
         id: "demo_template_v1",
         name: "Test-Template (Demo)",
         description: "Beispiel-Inventar für Start/Tests (kann morgen ersetzt werden).",
         items: [
-          // Getränke
           { name: "Wasser", price: 1.00, category: "Getränke" },
           { name: "Cola", price: 1.50, category: "Getränke" },
           { name: "Kaffee", price: 1.20, category: "Getränke" },
-          // Snacks
           { name: "Chips", price: 1.20, category: "Snacks" },
           { name: "Schokoriegel", price: 0.90, category: "Snacks" },
-          // Eis
           { name: "Eis am Stiel", price: 1.20, category: "Eis" },
         ],
       },
     ];
 
-    // Helpers
-    const newId = () =>
-      (crypto && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-
+    const normalizeCategory = (cat) => (cat && CATEGORIES.includes(cat)) ? cat : "Getränke";
     const asMoney = (n) => (Number(n) || 0).toFixed(2);
 
-    const normalizeCategory = (cat) => (cat && CATEGORIES.includes(cat)) ? cat : "Getränke";
-
-    // Deterministic template IDs (avoid duplicates & stable across loads)
     const slugify = (s) =>
       String(s || "")
         .toLowerCase()
@@ -123,107 +108,228 @@
 
     const templateItemId = (templateId, item) => `tpl:${templateId}:${normalizeCategory(item.category)}:${slugify(item.name)}`;
 
+    const api = {
+      async request(path, { method="GET", token=null, body=null } = {}) {
+        const headers = { "Content-Type": "application/json" };
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+        const res = await fetch(`/.netlify/functions/${path}`, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : null,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+        return data;
+      },
+      groups() { return this.request("groups"); },
+      loginGroup(payload) { return this.request("login-group", { method: "POST", body: payload }); },
+      loginAdmin(payload) { return this.request("login-admin", { method: "POST", body: payload }); },
+      createGroup(token, payload) { return this.request("groups", { method: "POST", token, body: payload }); },
+      changeAdminPassword(token, payload) { return this.request("admin-password", { method: "POST", token, body: payload }); },
+      getDayReports(token) { return this.request("day-reports", { token }); },
+      createDayReport(token, payload) { return this.request("day-reports", { method: "POST", token, body: payload }); },
+      deleteDayReport(token, id) { return this.request(`day-reports?id=${encodeURIComponent(id)}`, { method: "DELETE", token }); },
+    };
+
+    const LoginScreen = ({ onLogin }) => {
+      const [groups, setGroups] = useState([]);
+      const [mode, setMode] = useState("user"); // user | admin
+      const [groupId, setGroupId] = useState("");
+      const [name, setName] = useState("");
+      const [password, setPassword] = useState("");
+      const [error, setError] = useState("");
+      const [loading, setLoading] = useState(false);
+
+      useEffect(() => {
+        (async () => {
+          try {
+            const data = await api.groups();
+            setGroups(data.groups || []);
+            if ((data.groups || []).length) setGroupId(data.groups[0].id);
+          } catch (e) {
+            setError("Konnte Gruppen nicht laden. (Netlify Functions/DB prüfen)");
+          }
+        })();
+      }, []);
+
+      const submit = async () => {
+        setError("");
+        setLoading(true);
+        try {
+          if (mode === "admin") {
+            const data = await api.loginAdmin({ password });
+            onLogin({ token: data.token, role: data.role, name: data.name, groupName: data.groupName });
+          } else {
+            if (!name.trim()) throw new Error("Name ist Pflicht.");
+            const data = await api.loginGroup({ groupId, password, name: name.trim() });
+            onLogin({ token: data.token, role: data.role, name: data.name, groupName: data.groupName });
+          }
+        } catch (e) {
+          setError(e.message || "Login fehlgeschlagen");
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      return (
+        <div className="min-h-screen bg-gray-50 p-4 flex items-center justify-center">
+          <div className="bg-white shadow-lg rounded-xl w-full max-w-md p-6">
+            <h1 className="text-2xl font-bold text-gray-800 mb-2">Bistro Kasse</h1>
+            <p className="text-sm text-gray-600 mb-6">Bitte anmelden, um fortzufahren.</p>
+
+            <div className="flex gap-2 mb-4">
+              <button
+                onClick={() => setMode("user")}
+                className={`flex-1 py-2 rounded-lg font-semibold border ${mode==="user" ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-700"}`}
+              >
+                Nutzer
+              </button>
+              <button
+                onClick={() => setMode("admin")}
+                className={`flex-1 py-2 rounded-lg font-semibold border ${mode==="admin" ? "bg-gray-800 text-white border-gray-800" : "bg-white text-gray-700"}`}
+              >
+                Admin
+              </button>
+            </div>
+
+            {mode === "user" && (
+              <>
+                <label className="text-sm font-semibold text-gray-700">Gruppe</label>
+                <select
+                  value={groupId}
+                  onChange={(e) => setGroupId(e.target.value)}
+                  className="w-full px-4 py-2 border rounded-lg mb-3 bg-white"
+                >
+                  {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+                </select>
+
+                <label className="text-sm font-semibold text-gray-700">Dein Name (Pflicht)</label>
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="w-full px-4 py-2 border rounded-lg mb-3"
+                  placeholder="z. B. Max"
+                />
+              </>
+            )}
+
+            <label className="text-sm font-semibold text-gray-700">
+              {mode === "admin" ? "Admin Passwort" : "Gruppenpasswort"}
+            </label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full px-4 py-2 border rounded-lg mb-4"
+              placeholder="Passwort"
+            />
+
+            {error && <div className="mb-4 p-3 rounded-lg bg-red-50 text-red-700 text-sm border border-red-200">{error}</div>}
+
+            <button
+              onClick={submit}
+              disabled={loading || !password || (mode==="user" && (!groupId || !name.trim()))}
+              className="w-full py-3 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition disabled:bg-gray-300"
+            >
+              {loading ? "..." : "Anmelden"}
+            </button>
+
+            <p className="text-xs text-gray-400 mt-4">
+              Hinweis: Tagesabschlüsse werden zentral gespeichert. Artikel/Inventar bleiben pro Gerät lokal.
+            </p>
+          </div>
+        </div>
+      );
+    };
+
     const BistroKasse = () => {
+      // Session
+      const [session, setSession] = useState(null); // {token, role, name, groupName}
+      const isAdmin = session?.role === "admin";
+
+      // App state
       const [articles, setArticles] = useState([]);
       const [currentTransaction, setCurrentTransaction] = useState([]);
 
       const [showSettings, setShowSettings] = useState(false);
       const [showPayment, setShowPayment] = useState(false);
       const [showDayReport, setShowDayReport] = useState(false);
+      const [showAdminPanel, setShowAdminPanel] = useState(false);
 
       const [givenAmount, setGivenAmount] = useState(0);
 
       // dailySales keyed by item id
-      // shape: { [id]: { id, name, count, revenue } }
       const [dailySales, setDailySales] = useState({});
-      const [savedDays, setSavedDays] = useState([]);
 
+      // DB day reports
+      const [remoteReports, setRemoteReports] = useState([]);
+      const [reportsError, setReportsError] = useState("");
+
+      // Articles CRUD (Admin only)
       const [newArticle, setNewArticle] = useState({ name: "", price: "", category: "Getränke" });
-
-      // Editing state
       const [editingId, setEditingId] = useState(null);
       const [editDraft, setEditDraft] = useState({ name: "", price: "", category: "Getränke" });
 
-      // Template state
-      const [activeTemplateId, setActiveTemplateId] = useState(null);
+      // Templates
+      const [activeTemplateId, setActiveTemplateId] = useState(localStorage.getItem("bistro-active-template-id") || null);
       const [templateSelection, setTemplateSelection] = useState(INVENTORY_TEMPLATES[0]?.id || "");
 
-      // ----- Storage load -----
+      // Admin: groups + admin password change
+      const [groups, setGroups] = useState([]);
+      const [newGroup, setNewGroup] = useState({ name: "", password: "" });
+      const [adminPw, setAdminPw] = useState({ current: "", next: "" });
+      const [adminMsg, setAdminMsg] = useState("");
+
+      // Load session
       useEffect(() => {
-        const savedArticles = localStorage.getItem("bistro-articles");
-        const savedDailySales = localStorage.getItem("bistro-daily-sales");
-        const savedDaysData = localStorage.getItem("bistro-saved-days");
-        const savedTemplateId = localStorage.getItem("bistro-active-template-id");
-
-        if (savedTemplateId) setActiveTemplateId(savedTemplateId);
-
-        if (savedArticles) {
-          const parsed = JSON.parse(savedArticles);
-          const migrated = Array.isArray(parsed)
-            ? parsed.map((a) => ({
-                id: a.id || newId(),
-                name: a.name || "",
-                price: typeof a.price === "number" ? a.price : parseFloat(a.price),
-                category: normalizeCategory(a.category),
-              })).filter((a) => a.name && !Number.isNaN(a.price))
-            : [];
-          setArticles(migrated);
+        const raw = localStorage.getItem("bistro-session");
+        if (raw) {
+          try { setSession(JSON.parse(raw)); } catch {}
         }
-
-        if (savedDailySales) {
-          const parsed = JSON.parse(savedDailySales);
-          // Backward-compatible migration: if keyed by name, convert best-effort
-          if (parsed && !Array.isArray(parsed) && typeof parsed === "object") {
-            const values = Object.values(parsed);
-            const looksLikeOld = values.length && values[0] && values[0].count !== undefined && values[0].revenue !== undefined && !values[0].id;
-            if (looksLikeOld) {
-              const converted = {};
-              Object.entries(parsed).forEach(([name, data]) => {
-                const id = `legacy-${name}`;
-                converted[id] = { id, name, count: data.count || 0, revenue: data.revenue || 0 };
-              });
-              setDailySales(converted);
-            } else {
-              setDailySales(parsed);
-            }
-          }
-        }
-
-        if (savedDaysData) setSavedDays(JSON.parse(savedDaysData));
       }, []);
 
-      // ----- Storage save -----
+      const onLogin = (s) => {
+        localStorage.setItem("bistro-session", JSON.stringify(s));
+        setSession(s);
+      };
+
+      const logout = () => {
+        localStorage.removeItem("bistro-session");
+        setSession(null);
+      };
+
+      // Load local articles (per device) once logged in
       useEffect(() => {
+        if (!session) return;
+        const savedArticles = localStorage.getItem("bistro-articles");
+        if (savedArticles) {
+          try { setArticles(JSON.parse(savedArticles)); } catch {}
+        }
+      }, [session]);
+
+      useEffect(() => {
+        if (!session) return;
         localStorage.setItem("bistro-articles", JSON.stringify(articles));
-      }, [articles]);
+      }, [articles, session]);
 
       useEffect(() => {
-        localStorage.setItem("bistro-daily-sales", JSON.stringify(dailySales));
-      }, [dailySales]);
+        if (!session) return;
+        localStorage.setItem("bistro-active-template-id", activeTemplateId || "");
+      }, [activeTemplateId, session]);
 
-      useEffect(() => {
-        localStorage.setItem("bistro-saved-days", JSON.stringify(savedDays));
-      }, [savedDays]);
-
-      useEffect(() => {
-        if (activeTemplateId) localStorage.setItem("bistro-active-template-id", activeTemplateId);
-        else localStorage.removeItem("bistro-active-template-id");
-      }, [activeTemplateId]);
-
-      // Pfand items
       const pfandInItem = useMemo(() => ({ id: "pfand_in", name: "Pfand Einnahme", price: 0.25, category: "Pfand" }), []);
       const pfandOutItem = useMemo(() => ({ id: "pfand_out", name: "Pfand Ausgabe", price: -0.25, category: "Pfand" }), []);
 
       const categorizedArticles = useMemo(() => {
         const grouped = CATEGORIES.reduce((acc, cat) => (acc[cat] = [], acc), {});
         for (const a of articles) {
-          grouped[normalizeCategory(a.category)].push(a);
+          const cat = normalizeCategory(a.category);
+          grouped[cat].push(a);
         }
         return grouped;
       }, [articles]);
 
-      // === Template apply logic ===
-      const getTemplateById = (id) => INVENTORY_TEMPLATES.find((t) => t.id === id) || null;
+      const getTemplateById = (id) => INVENTORY_TEMPLATES.find(t => t.id === id) || null;
 
       const applyTemplate = (templateId) => {
         const tpl = getTemplateById(templateId);
@@ -242,15 +348,9 @@
             const key = `${category}|${name}`;
             if (existingKey.has(key)) continue;
 
-            additions.push({
-              id: templateItemId(tpl.id, { name, category }),
-              name,
-              price,
-              category,
-            });
+            additions.push({ id: templateItemId(tpl.id, { name, category }), name, price, category });
             existingKey.add(key);
           }
-
           return additions.length ? [...prev, ...additions] : prev;
         });
       };
@@ -260,19 +360,9 @@
         applyTemplate(templateId);
       };
 
-      const deactivateTemplate = () => {
-        setActiveTemplateId(null);
-      };
+      const deactivateTemplate = () => setActiveTemplateId(null);
 
-      // Auto-Apply: if template active AND inventory empty => apply on start
-      useEffect(() => {
-        if (!activeTemplateId) return;
-        if (articles.length !== 0) return;
-        applyTemplate(activeTemplateId);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-      }, [activeTemplateId, articles.length]);
-
-      // ---- Transaction logic ----
+      // Transaction
       const addToTransaction = (item) => {
         setCurrentTransaction((prev) => [...prev, item]);
 
@@ -280,7 +370,6 @@
           const next = { ...prev };
           const key = item.id || `legacy-${item.name}`;
           if (!next[key]) next[key] = { id: key, name: item.name, count: 0, revenue: 0 };
-
           next[key].name = item.name;
           next[key].count += 1;
           next[key].revenue += item.price;
@@ -290,7 +379,7 @@
 
       const undoLastItem = () => {
         setCurrentTransaction((prev) => {
-          if (prev.length === 0) return prev;
+          if (!prev.length) return prev;
           const last = prev[prev.length - 1];
 
           setDailySales((salesPrev) => {
@@ -310,20 +399,16 @@
 
       const calculateTotal = () => currentTransaction.reduce((sum, item) => sum + item.price, 0);
 
-      // Leeren (inkl. dailySales rollback)
       const clearTransaction = () => {
-        if (currentTransaction.length === 0) return;
+        if (!currentTransaction.length) return;
 
         setDailySales((salesPrev) => {
           const next = { ...salesPrev };
-
           for (const item of currentTransaction) {
             const key = item.id || `legacy-${item.name}`;
             if (!next[key]) continue;
-
             next[key].count -= 1;
             next[key].revenue -= item.price;
-
             if (next[key].count <= 0) delete next[key];
           }
           return next;
@@ -333,15 +418,19 @@
         setGivenAmount(0);
       };
 
-      // ---- Article CRUD ----
+      // Admin-only CRUD
       const handleAddArticle = () => {
+        if (!isAdmin) return;
         if (!newArticle.name || !newArticle.price) return;
         const price = parseFloat(newArticle.price);
         if (Number.isNaN(price)) return;
 
-        const category = normalizeCategory(newArticle.category);
-        const article = { id: newId(), name: newArticle.name.trim(), price, category };
-
+        const article = {
+          id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          name: newArticle.name.trim(),
+          price,
+          category: normalizeCategory(newArticle.category),
+        };
         if (!article.name) return;
 
         setArticles((prev) => [...prev, article]);
@@ -349,10 +438,12 @@
       };
 
       const handleDeleteArticle = (id) => {
+        if (!isAdmin) return;
         setArticles((prev) => prev.filter((a) => a.id !== id));
       };
 
       const startEdit = (article) => {
+        if (!isAdmin) return;
         setEditingId(article.id);
         setEditDraft({ name: article.name, price: String(article.price), category: normalizeCategory(article.category) });
       };
@@ -363,76 +454,124 @@
       };
 
       const saveEdit = () => {
-        if (!editingId) return;
-        if (!editDraft.name || !editDraft.price) return;
-
+        if (!isAdmin || !editingId) return;
         const price = parseFloat(editDraft.price);
-        if (Number.isNaN(price)) return;
-
-        const category = normalizeCategory(editDraft.category);
-        const name = editDraft.name.trim();
-        if (!name) return;
+        if (!editDraft.name.trim() || Number.isNaN(price)) return;
 
         setArticles((prev) =>
           prev.map((a) =>
             a.id === editingId
-              ? { ...a, name, price, category }
+              ? { ...a, name: editDraft.name.trim(), price, category: normalizeCategory(editDraft.category) }
               : a
           )
         );
-
         cancelEdit();
       };
 
-      // ---- Payment ----
+      // Payment
       const addToGivenAmount = (amount) => setGivenAmount((prev) => prev + amount);
       const calculateChange = () => givenAmount - calculateTotal();
-
       const completeTransaction = () => {
         setCurrentTransaction([]);
         setGivenAmount(0);
         setShowPayment(false);
       };
 
-      // ---- Day stats & archive ----
+      // Stats
       const getDayStats = () => {
-        let pfandIn = 0;
-        let pfandOut = 0;
-        let merchandise = 0;
-
+        let pfandIn = 0, pfandOut = 0, merchandise = 0;
         Object.values(dailySales).forEach((data) => {
           if (data.id === "pfand_in" || data.name === "Pfand Einnahme") pfandIn += data.revenue;
           else if (data.id === "pfand_out" || data.name === "Pfand Ausgabe") pfandOut += data.revenue;
           else merchandise += data.revenue;
         });
+        return { pfandIn, pfandOut, pfandBalance: pfandIn + pfandOut, merchandise, total: pfandIn + pfandOut + merchandise };
+      };
+      const stats = getDayStats();
 
-        return {
-          pfandIn,
-          pfandOut,
-          pfandBalance: pfandIn + pfandOut,
-          merchandise,
-          total: pfandIn + pfandOut + merchandise,
-        };
+      // DB: load reports
+      const refreshReports = async () => {
+        setReportsError("");
+        try {
+          const data = await api.getDayReports(session.token);
+          setRemoteReports(data.reports || []);
+        } catch (e) {
+          setReportsError(e.message || "Konnte Tagesabschlüsse nicht laden.");
+        }
       };
 
-      const closeDay = () => {
+      useEffect(() => {
+        if (!session) return;
+        refreshReports();
+      }, [session]);
+
+      const closeDay = async () => {
         const today = new Date().toLocaleDateString("de-DE");
         const totalRevenue = Object.values(dailySales).reduce((sum, item) => sum + item.revenue, 0);
 
-        const dayData = { date: today, sales: { ...dailySales }, totalRevenue };
-        setSavedDays((prev) => [dayData, ...prev]);
-        setDailySales({});
+        try {
+          await api.createDayReport(session.token, {
+            day_label: today,
+            total_revenue: totalRevenue,
+            sales_json: dailySales,
+          });
+          setDailySales({});
+          await refreshReports();
+        } catch (e) {
+          alert(e.message || "Speichern fehlgeschlagen");
+        }
       };
 
-      const deleteSavedDay = (index) => {
-        const ok = window.confirm("Diesen Tag wirklich löschen?");
+      const deleteReport = async (id) => {
+        if (!isAdmin) return;
+        const ok = window.confirm("Diesen Tagesabschluss wirklich löschen?");
         if (!ok) return;
-        setSavedDays((prev) => prev.filter((_, i) => i !== index));
+        try {
+          await api.deleteDayReport(session.token, id);
+          await refreshReports();
+        } catch (e) {
+          alert(e.message || "Löschen fehlgeschlagen");
+        }
       };
 
-      const stats = getDayStats();
+      // Admin panel: groups and admin pw
+      const loadGroups = async () => {
+        try {
+          const data = await api.groups();
+          setGroups(data.groups || []);
+        } catch {}
+      };
 
-      // Fixed bottom panel sizing
+      useEffect(() => {
+        if (!session) return;
+        loadGroups();
+      }, [session]);
+
+      const createGroup = async () => {
+        setAdminMsg("");
+        try {
+          await api.createGroup(session.token, { name: newGroup.name.trim(), password: newGroup.password });
+          setNewGroup({ name: "", password: "" });
+          setAdminMsg("Gruppe angelegt.");
+          await loadGroups();
+        } catch (e) {
+          setAdminMsg(e.message || "Fehler");
+        }
+      };
+
+      const changeAdminPassword = async () => {
+        setAdminMsg("");
+        try {
+          await api.changeAdminPassword(session.token, { currentPassword: adminPw.current, newPassword: adminPw.next });
+          setAdminPw({ current: "", next: "" });
+          setAdminMsg("Admin Passwort geändert.");
+        } catch (e) {
+          setAdminMsg(e.message || "Fehler");
+        }
+      };
+
+      if (!session) return <LoginScreen onLogin={onLogin} />;
+
       const bottomPanelHeightClass = "h-72";
       const bottomPaddingClass = "pb-80";
 
@@ -440,15 +579,34 @@
         <div className={`min-h-screen bg-gray-50 p-4 ${bottomPaddingClass}`}>
           <div className="max-w-7xl mx-auto mb-6">
             <div className="flex justify-between items-center">
-              <h1 className="text-3xl font-bold text-gray-800">Bistro Kasse</h1>
+              <div>
+                <h1 className="text-3xl font-bold text-gray-800">Bistro Kasse</h1>
+                <div className="text-sm text-gray-500 mt-1">
+                  Angemeldet als <span className="font-semibold text-gray-700">{session.name}</span>
+                  {" "}({session.groupName}) – <span className="font-semibold">{isAdmin ? "Admin" : "Nutzer"}</span>
+                  {" "}· <button className="underline text-gray-500 hover:text-gray-700" onClick={logout}>Logout</button>
+                </div>
+              </div>
+
               <div className="flex gap-2">
                 <button
-                  onClick={() => setShowDayReport(true)}
+                  onClick={() => { setShowDayReport(true); refreshReports(); }}
                   className="p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition"
                   title="Tagesabschluss"
                 >
                   <Calendar />
                 </button>
+
+                {isAdmin && (
+                  <button
+                    onClick={() => setShowAdminPanel(true)}
+                    className="p-2 bg-gray-900 text-white rounded-lg hover:bg-black transition"
+                    title="Admin"
+                  >
+                    <Shield />
+                  </button>
+                )}
+
                 <button
                   onClick={() => setShowSettings(true)}
                   className="p-2 bg-gray-700 text-white rounded-lg hover:bg-gray-800 transition"
@@ -464,18 +622,17 @@
             <div className="bg-white rounded-lg shadow-md p-6">
               <h2 className="text-xl font-semibold mb-4 text-gray-700">Artikel</h2>
 
-              {/* Pfand separat */}
               <div className="mb-6">
                 <h3 className="text-sm font-bold uppercase tracking-wide text-gray-500 mb-2">Pfand</h3>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                   <button
-                    onClick={() => addToTransaction(pfandInItem)}
+                    onClick={() => addToTransaction({ ...pfandInItem })}
                     className="p-4 bg-green-500 text-white rounded-lg hover:bg-green-600 transition font-semibold"
                   >
                     Pfand Einnahme<br />+0,25€
                   </button>
                   <button
-                    onClick={() => addToTransaction(pfandOutItem)}
+                    onClick={() => addToTransaction({ ...pfandOutItem })}
                     className="p-4 bg-red-500 text-white rounded-lg hover:bg-red-600 transition font-semibold"
                   >
                     Pfand Ausgabe<br />-0,25€
@@ -483,7 +640,6 @@
                 </div>
               </div>
 
-              {/* Kategorien */}
               <div className="space-y-6">
                 {CATEGORIES.map((cat) => {
                   const styles = CATEGORY_STYLES[cat];
@@ -493,10 +649,10 @@
                         <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full border text-sm font-semibold ${styles.badge}`}>
                           {cat}
                         </div>
-                        <span className="text-xs text-gray-400">{categorizedArticles[cat].length} Artikel</span>
+                        <span className="text-xs text-gray-400">{(categorizedArticles[cat] || []).length} Artikel</span>
                       </div>
 
-                      {categorizedArticles[cat].length === 0 ? (
+                      {(categorizedArticles[cat] || []).length === 0 ? (
                         <div className="p-4 bg-gray-50 rounded-lg text-gray-400 text-sm">
                           Keine Artikel in dieser Kategorie
                         </div>
@@ -509,8 +665,7 @@
                               className={`p-4 text-white rounded-lg transition font-semibold ${styles.button}`}
                             >
                               {article.name}<br />
-                              {article.price > 0 ? "+" : ""}
-                              {asMoney(article.price)}€
+                              {article.price > 0 ? "+" : ""}{asMoney(article.price)}€
                             </button>
                           ))}
                         </div>
@@ -522,7 +677,7 @@
             </div>
           </div>
 
-          {/* Fixed bottom "Aktueller Vorgang" panel */}
+          {/* Fixed bottom transaction panel */}
           <div className="fixed left-0 right-0 bottom-0 z-40 p-3">
             <div className="max-w-7xl mx-auto">
               <div className={`bg-white rounded-xl shadow-2xl border ${bottomPanelHeightClass} overflow-hidden`}>
@@ -549,7 +704,6 @@
                     </div>
                   </div>
 
-                  {/* Scrollable list */}
                   <div className="flex-1 overflow-y-auto px-4 py-2">
                     {currentTransaction.length === 0 ? (
                       <p className="text-gray-400 text-center py-8">Keine Artikel</p>
@@ -558,21 +712,18 @@
                         <div key={`${item.id || item.name}-${index}`} className="flex justify-between py-2 border-b">
                           <span className="text-gray-700">{item.name}</span>
                           <span className={`font-semibold ${item.price >= 0 ? "text-green-600" : "text-red-600"}`}>
-                            {item.price > 0 ? "+" : ""}
-                            {asMoney(item.price)}€
+                            {item.price > 0 ? "+" : ""}{asMoney(item.price)}€
                           </span>
                         </div>
                       ))
                     )}
                   </div>
 
-                  {/* Total + Pay always visible */}
                   <div className="px-4 py-3 border-t bg-white">
                     <div className="flex items-center justify-between mb-3">
                       <span className="text-lg font-bold text-gray-800">Gesamt:</span>
                       <span className="text-2xl font-bold text-blue-600">{asMoney(calculateTotal())}€</span>
                     </div>
-
                     <button
                       onClick={() => setShowPayment(true)}
                       disabled={currentTransaction.length === 0}
@@ -583,11 +734,10 @@
                   </div>
                 </div>
               </div>
-
             </div>
           </div>
 
-          {/* Settings modal */}
+          {/* Settings modal: Templates always visible; Articles only for admin */}
           {showSettings && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
               <div className="bg-white rounded-lg max-w-2xl w-full max-h-[80vh] overflow-y-auto p-6">
@@ -602,15 +752,14 @@
                 <div className="mb-8 p-4 rounded-lg border bg-gray-50">
                   <h3 className="text-lg font-semibold mb-2 text-gray-700">Inventar-Templates</h3>
                   <p className="text-sm text-gray-600 mb-4">
-                    Damit kann ein Gerät schnell ein Standard-Inventar übernehmen. Aktiviert bleibt es als Standard gespeichert,
-                    bis du es deaktivierst.
+                    Nutzer können nur Templates aktivieren. Artikelpflege ist nur für Admin.
                   </p>
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-2 items-start">
                     <select
                       value={templateSelection}
                       onChange={(e) => setTemplateSelection(e.target.value)}
-                      className="md:col-span-2 w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                      className="md:col-span-2 w-full px-4 py-2 border rounded-lg bg-white"
                     >
                       {INVENTORY_TEMPLATES.map((t) => (
                         <option key={t.id} value={t.id}>{t.name}</option>
@@ -621,25 +770,19 @@
                       <button
                         onClick={() => activateTemplate(templateSelection)}
                         className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition"
-                        title="Template aktivieren (fügt fehlende Artikel hinzu)"
                       >
                         Aktivieren
                       </button>
-
                       <button
                         onClick={() => applyTemplate(activeTemplateId || templateSelection)}
-                        className="flex-1 px-4 py-2 bg-white border rounded-lg font-semibold hover:bg-gray-100 transition disabled:opacity-50"
-                        disabled={!activeTemplateId && !templateSelection}
-                        title="Template erneut anwenden (fügt nur fehlende Artikel hinzu)"
+                        className="flex-1 px-4 py-2 bg-white border rounded-lg font-semibold hover:bg-gray-100 transition"
                       >
                         Erneut anwenden
                       </button>
-
                       <button
                         onClick={deactivateTemplate}
                         className="flex-1 px-4 py-2 bg-gray-400 text-white rounded-lg font-semibold hover:bg-gray-500 transition disabled:opacity-50"
                         disabled={!activeTemplateId}
-                        title="Template als Standard deaktivieren"
                       >
                         Deaktivieren
                       </button>
@@ -648,12 +791,11 @@
 
                   <div className="mt-4 text-sm">
                     <div className="flex items-center justify-between p-3 bg-white rounded-lg border">
-                      <span className="text-gray-700 font-medium">Aktives Standard-Template:</span>
+                      <span className="text-gray-700 font-medium">Aktives Template:</span>
                       <span className={`font-semibold ${activeTemplateId ? "text-green-700" : "text-gray-500"}`}>
                         {activeTemplateId ? (getTemplateById(activeTemplateId)?.name || activeTemplateId) : "Keins"}
                       </span>
                     </div>
-
                     {templateSelection && (
                       <div className="mt-2 text-gray-600">
                         {getTemplateById(templateSelection)?.description || ""}
@@ -662,134 +804,200 @@
                   </div>
                 </div>
 
-                {/* Add new article */}
-                <div className="mb-6">
-                  <h3 className="text-lg font-semibold mb-3 text-gray-700">Neuer Artikel</h3>
-                  <div className="flex flex-col md:flex-row gap-2">
-                    <input
-                      type="text"
-                      placeholder="Name"
-                      value={newArticle.name}
-                      onChange={(e) => setNewArticle({ ...newArticle, name: e.target.value })}
-                      className="flex-1 px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    <input
-                      type="number"
-                      step="0.01"
-                      placeholder="Preis (€)"
-                      value={newArticle.price}
-                      onChange={(e) => setNewArticle({ ...newArticle, price: e.target.value })}
-                      className="w-full md:w-32 px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    <select
-                      value={newArticle.category}
-                      onChange={(e) => setNewArticle({ ...newArticle, category: e.target.value })}
-                      className="w-full md:w-40 px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                    >
-                      {CATEGORIES.map((cat) => (
-                        <option key={cat} value={cat}>{cat}</option>
-                      ))}
-                    </select>
-                    <button
-                      onClick={handleAddArticle}
-                      className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition"
-                      title="Artikel hinzufügen"
-                    >
-                      <Plus />
-                    </button>
+                {/* Admin-only Article CRUD */}
+                {!isAdmin ? (
+                  <div className="p-4 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-sm">
+                    Artikelpflege ist nur für Admin freigeschaltet.
                   </div>
-                </div>
+                ) : (
+                  <>
+                    <div className="mb-6">
+                      <h3 className="text-lg font-semibold mb-3 text-gray-700">Neuer Artikel (Admin)</h3>
+                      <div className="flex flex-col md:flex-row gap-2">
+                        <input
+                          type="text"
+                          placeholder="Name"
+                          value={newArticle.name}
+                          onChange={(e) => setNewArticle({ ...newArticle, name: e.target.value })}
+                          className="flex-1 px-4 py-2 border rounded-lg"
+                        />
+                        <input
+                          type="number"
+                          step="0.01"
+                          placeholder="Preis (€)"
+                          value={newArticle.price}
+                          onChange={(e) => setNewArticle({ ...newArticle, price: e.target.value })}
+                          className="w-full md:w-32 px-4 py-2 border rounded-lg"
+                        />
+                        <select
+                          value={newArticle.category}
+                          onChange={(e) => setNewArticle({ ...newArticle, category: e.target.value })}
+                          className="w-full md:w-40 px-4 py-2 border rounded-lg bg-white"
+                        >
+                          {CATEGORIES.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
+                        </select>
+                        <button onClick={handleAddArticle} className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition">
+                          <Plus />
+                        </button>
+                      </div>
+                    </div>
 
-                {/* Existing articles */}
-                <div>
-                  <h3 className="text-lg font-semibold mb-3 text-gray-700">Vorhandene Artikel</h3>
-                  <div className="space-y-2">
-                    {articles.map((article) => {
-                      const isEditing = editingId === article.id;
-                      const badge = CATEGORY_STYLES[normalizeCategory(article.category)]?.badge || "bg-gray-50 text-gray-700 border-gray-200";
-                      return (
-                        <div key={article.id} className="p-3 bg-gray-50 rounded-lg">
-                          {!isEditing ? (
-                            <div className="flex justify-between items-center gap-3">
-                              <div className="min-w-0">
-                                <div className="font-medium text-gray-700 truncate">{article.name}</div>
-                                <div className="mt-1 flex items-center gap-2">
-                                  <span className={`text-xs px-2 py-0.5 rounded-full border ${badge}`}>
-                                    {normalizeCategory(article.category)}
-                                  </span>
-                                  <span className="text-blue-600 font-semibold">{asMoney(article.price)}€</span>
+                    <div>
+                      <h3 className="text-lg font-semibold mb-3 text-gray-700">Vorhandene Artikel (Admin)</h3>
+                      <div className="space-y-2">
+                        {articles.map((article) => {
+                          const isEditing = editingId === article.id;
+                          const badge = CATEGORY_STYLES[normalizeCategory(article.category)]?.badge || "bg-gray-50 text-gray-700 border-gray-200";
+                          return (
+                            <div key={article.id} className="p-3 bg-gray-50 rounded-lg">
+                              {!isEditing ? (
+                                <div className="flex justify-between items-center gap-3">
+                                  <div className="min-w-0">
+                                    <div className="font-medium text-gray-700 truncate">{article.name}</div>
+                                    <div className="mt-1 flex items-center gap-2">
+                                      <span className={`text-xs px-2 py-0.5 rounded-full border ${badge}`}>
+                                        {normalizeCategory(article.category)}
+                                      </span>
+                                      <span className="text-blue-600 font-semibold">{asMoney(article.price)}€</span>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <button onClick={() => startEdit(article)} className="px-3 py-2 bg-white border rounded-lg hover:bg-gray-100 transition">
+                                      <Pencil />
+                                    </button>
+                                    <button onClick={() => handleDeleteArticle(article.id)} className="px-3 py-2 bg-white border rounded-lg hover:bg-red-50 text-red-600 transition">
+                                      <Trash2 />
+                                    </button>
+                                  </div>
                                 </div>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <button
-                                  onClick={() => startEdit(article)}
-                                  className="px-3 py-2 bg-white border rounded-lg hover:bg-gray-100 transition"
-                                  title="Bearbeiten"
-                                >
-                                  <Pencil />
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteArticle(article.id)}
-                                  className="px-3 py-2 bg-white border rounded-lg hover:bg-red-50 text-red-600 transition"
-                                  title="Löschen"
-                                >
-                                  <Trash2 />
-                                </button>
-                              </div>
+                              ) : (
+                                <div className="space-y-3">
+                                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                                    <input
+                                      type="text"
+                                      value={editDraft.name}
+                                      onChange={(e) => setEditDraft({ ...editDraft, name: e.target.value })}
+                                      className="px-4 py-2 border rounded-lg"
+                                    />
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      value={editDraft.price}
+                                      onChange={(e) => setEditDraft({ ...editDraft, price: e.target.value })}
+                                      className="px-4 py-2 border rounded-lg"
+                                    />
+                                    <select
+                                      value={editDraft.category}
+                                      onChange={(e) => setEditDraft({ ...editDraft, category: e.target.value })}
+                                      className="px-4 py-2 border rounded-lg bg-white"
+                                    >
+                                      {CATEGORIES.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
+                                    </select>
+                                  </div>
+                                  <div className="flex gap-2">
+                                    <button onClick={saveEdit} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition inline-flex items-center gap-2">
+                                      <Check /> Speichern
+                                    </button>
+                                    <button onClick={cancelEdit} className="px-4 py-2 bg-gray-400 text-white rounded-lg hover:bg-gray-500 transition inline-flex items-center gap-2">
+                                      <X /> Abbrechen
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
                             </div>
-                          ) : (
-                            <div className="space-y-3">
-                              <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                                <input
-                                  type="text"
-                                  value={editDraft.name}
-                                  onChange={(e) => setEditDraft({ ...editDraft, name: e.target.value })}
-                                  className="px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                />
-                                <input
-                                  type="number"
-                                  step="0.01"
-                                  value={editDraft.price}
-                                  onChange={(e) => setEditDraft({ ...editDraft, price: e.target.value })}
-                                  className="px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                />
-                                <select
-                                  value={editDraft.category}
-                                  onChange={(e) => setEditDraft({ ...editDraft, category: e.target.value })}
-                                  className="px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                                >
-                                  {CATEGORIES.map((cat) => (
-                                    <option key={cat} value={cat}>{cat}</option>
-                                  ))}
-                                </select>
-                              </div>
+                          );
+                        })}
+                        {articles.length === 0 && <p className="text-gray-400 text-center py-6">Noch keine Artikel angelegt</p>}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
 
-                              <div className="flex gap-2">
-                                <button
-                                  onClick={saveEdit}
-                                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition inline-flex items-center gap-2"
-                                >
-                                  <Check /> Speichern
-                                </button>
-                                <button
-                                  onClick={cancelEdit}
-                                  className="px-4 py-2 bg-gray-400 text-white rounded-lg hover:bg-gray-500 transition inline-flex items-center gap-2"
-                                >
-                                  <X /> Abbrechen
-                                </button>
-                              </div>
-                            </div>
-                          )}
+          {/* Admin Panel */}
+          {showAdminPanel && isAdmin && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+              <div className="bg-white rounded-lg max-w-2xl w-full max-h-[80vh] overflow-y-auto p-6">
+                <div className="flex justify-between items-center mb-6">
+                  <h2 className="text-2xl font-bold text-gray-800">Admin</h2>
+                  <button onClick={() => setShowAdminPanel(false)} className="text-gray-500 hover:text-gray-700">
+                    <X />
+                  </button>
+                </div>
+
+                {adminMsg && (
+                  <div className="mb-4 p-3 rounded-lg bg-blue-50 text-blue-800 border border-blue-200 text-sm">
+                    {adminMsg}
+                  </div>
+                )}
+
+                <div className="mb-8 p-4 rounded-lg border bg-gray-50">
+                  <h3 className="text-lg font-semibold mb-3 text-gray-700">Neue Gruppe anlegen</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <input
+                      className="px-4 py-2 border rounded-lg"
+                      placeholder="Gruppenname (z. B. 4a Dienst)"
+                      value={newGroup.name}
+                      onChange={(e) => setNewGroup({ ...newGroup, name: e.target.value })}
+                    />
+                    <input
+                      className="px-4 py-2 border rounded-lg"
+                      type="password"
+                      placeholder="Gruppenpasswort"
+                      value={newGroup.password}
+                      onChange={(e) => setNewGroup({ ...newGroup, password: e.target.value })}
+                    />
+                  </div>
+                  <button
+                    onClick={createGroup}
+                    className="mt-3 px-4 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition"
+                    disabled={!newGroup.name.trim() || newGroup.password.length < 6}
+                  >
+                    Gruppe erstellen
+                  </button>
+
+                  <div className="mt-4">
+                    <div className="text-sm font-semibold text-gray-700 mb-2">Vorhandene Gruppen</div>
+                    <div className="space-y-2">
+                      {groups.map(g => (
+                        <div key={g.id} className="p-3 bg-white border rounded-lg flex justify-between">
+                          <span className="font-medium text-gray-700">{g.name}</span>
+                          <span className="text-xs text-gray-400">{g.id}</span>
                         </div>
-                      );
-                    })}
-
-                    {articles.length === 0 && (
-                      <p className="text-gray-400 text-center py-6">Noch keine Artikel angelegt</p>
-                    )}
+                      ))}
+                      {groups.length === 0 && <div className="text-sm text-gray-400">Keine Gruppen vorhanden</div>}
+                    </div>
                   </div>
                 </div>
 
+                <div className="p-4 rounded-lg border bg-gray-50">
+                  <h3 className="text-lg font-semibold mb-3 text-gray-700">Admin Passwort ändern</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <input
+                      className="px-4 py-2 border rounded-lg"
+                      type="password"
+                      placeholder="Aktuelles Passwort"
+                      value={adminPw.current}
+                      onChange={(e) => setAdminPw({ ...adminPw, current: e.target.value })}
+                    />
+                    <input
+                      className="px-4 py-2 border rounded-lg"
+                      type="password"
+                      placeholder="Neues Passwort (min. 8)"
+                      value={adminPw.next}
+                      onChange={(e) => setAdminPw({ ...adminPw, next: e.target.value })}
+                    />
+                  </div>
+                  <button
+                    onClick={changeAdminPassword}
+                    className="mt-3 px-4 py-2 bg-gray-900 text-white rounded-lg font-semibold hover:bg-black transition"
+                    disabled={adminPw.next.length < 8 || !adminPw.current}
+                  >
+                    Passwort ändern
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -864,7 +1072,7 @@
             </div>
           )}
 
-          {/* Day report modal */}
+          {/* Day report modal (uses DB) */}
           {showDayReport && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
               <div className="bg-white rounded-lg max-w-3xl w-full max-h-[80vh] overflow-y-auto p-6">
@@ -876,7 +1084,10 @@
                 </div>
 
                 <div className="mb-8 p-6 bg-blue-50 rounded-lg">
-                  <h3 className="text-xl font-bold mb-4 text-gray-800">Heutiger Tag</h3>
+                  <h3 className="text-xl font-bold mb-2 text-gray-800">Heutiger Tag</h3>
+                  <p className="text-sm text-gray-600 mb-4">
+                    Einreichung wird gespeichert als: <span className="font-semibold">{session.name}</span> ({session.groupName})
+                  </p>
 
                   <div className="mb-4">
                     <h4 className="font-semibold text-gray-700 mb-2">Verkaufte Artikel:</h4>
@@ -923,43 +1134,66 @@
                     disabled={Object.keys(dailySales).length === 0}
                     className="w-full mt-4 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition disabled:bg-gray-300 disabled:cursor-not-allowed"
                   >
-                    Tag abschließen
+                    Tag abschließen (speichern)
                   </button>
                 </div>
 
                 <div>
-                  <h3 className="text-xl font-bold mb-4 text-gray-800">Vorherige Tage</h3>
-                  {savedDays.length === 0 ? (
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-xl font-bold text-gray-800">Archiv (alle Gruppen)</h3>
+                    <button
+                      onClick={refreshReports}
+                      className="px-4 py-2 bg-gray-200 rounded-lg font-semibold hover:bg-gray-300 transition"
+                    >
+                      Aktualisieren
+                    </button>
+                  </div>
+
+                  {reportsError && (
+                    <div className="mb-4 p-3 rounded-lg bg-red-50 text-red-700 text-sm border border-red-200">
+                      {reportsError}
+                    </div>
+                  )}
+
+                  {remoteReports.length === 0 ? (
                     <p className="text-gray-400 text-center py-8">Noch keine abgeschlossenen Tage</p>
                   ) : (
                     <div className="space-y-4">
-                      {savedDays.map((day, index) => (
-                        <div key={index} className="p-4 bg-gray-50 rounded-lg">
-                          <div className="flex justify-between items-center mb-3 gap-3">
+                      {remoteReports.map((day) => (
+                        <div key={day.id} className="p-4 bg-gray-50 rounded-lg">
+                          <div className="flex justify-between items-center mb-2 gap-3">
                             <div>
-                              <h4 className="font-bold text-gray-800">{day.date}</h4>
-                              <div className="text-xs text-gray-500">Archiv-Eintrag #{savedDays.length - index}</div>
+                              <h4 className="font-bold text-gray-800">{day.day_label}</h4>
+                              <div className="text-xs text-gray-500">
+                                Eingereicht von: <span className="font-semibold">{day.submitted_by}</span> ({day.group_name})
+                              </div>
                             </div>
 
                             <div className="flex items-center gap-3">
-                              <span className="text-lg font-bold text-blue-600">{asMoney(day.totalRevenue)}€</span>
-                              <button
-                                onClick={() => deleteSavedDay(index)}
-                                className="px-3 py-2 bg-white border rounded-lg hover:bg-red-50 text-red-600 transition"
-                                title="Diesen Tag löschen"
-                              >
-                                <Trash2 />
-                              </button>
+                              <span className="text-lg font-bold text-blue-600">{asMoney(day.total_revenue)}€</span>
+                              {isAdmin && (
+                                <button
+                                  onClick={() => deleteReport(day.id)}
+                                  className="px-3 py-2 bg-white border rounded-lg hover:bg-red-50 text-red-600 transition"
+                                  title="Diesen Tag löschen (Admin)"
+                                >
+                                  <Trash2 />
+                                </button>
+                              )}
                             </div>
                           </div>
 
                           <div className="text-sm space-y-1">
-                            {day.sales && Object.values(day.sales).map((data) => (
+                            {day.sales_json && Object.values(day.sales_json).map((data) => (
                               <div key={data.id || data.name} className="flex justify-between text-gray-600">
                                 <span>{data.name}:</span>
                                 <span>{data.count}x ({asMoney(data.revenue)}€)</span>
                               </div>
                             ))}
+                          </div>
+
+                          <div className="text-xs text-gray-400 mt-2">
+                            Zeit: {new Date(day.created_at).toLocaleString("de-DE")}
                           </div>
                         </div>
                       ))}
