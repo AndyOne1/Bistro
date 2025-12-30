@@ -1,32 +1,40 @@
-// netlify/functions/_auth.js
-// Simple auth helpers using JWT.
-// Configure process.env.AUTH_SECRET to a strong secret in Netlify site settings.
+const jwt = require("jsonwebtoken");
 
-const jwt = require('jsonwebtoken');
-
-const SECRET = process.env.AUTH_SECRET || 'replace-me-with-a-strong-secret';
-const DEFAULT_EXPIRES = '7d';
-
-function sign(payload, options = {}) {
-  return jwt.sign(payload, SECRET, { expiresIn: options.expiresIn || DEFAULT_EXPIRES });
+function json(statusCode, body) {
+  return {
+    statusCode,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  };
 }
 
-function verify(token) {
-  if (!token) return null;
+function getToken(event) {
+  const h = event.headers || {};
+  const auth = h.authorization || h.Authorization || "";
+  const [type, token] = auth.split(" ");
+  if (type !== "Bearer" || !token) return null;
+  return token;
+}
+
+function requireAuth(event) {
+  const token = getToken(event);
+  if (!token) return { ok: false, error: json(401, { error: "Unauthorized" }) };
+
   try {
-    // accept both "Bearer <token>" and raw token
-    const raw = token.startsWith('Bearer ') ? token.slice(7) : token;
-    return jwt.verify(raw, SECRET);
-  } catch (err) {
-    return null;
+    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    return { ok: true, payload };
+  } catch {
+    return { ok: false, error: json(401, { error: "Invalid token" }) };
   }
 }
 
-// Helper to extract token from Netlify Functions event headers
-function fromEvent(event) {
-  const auth = event.headers && (event.headers.authorization || event.headers.Authorization);
-  if (!auth) return null;
-  return verify(auth);
+function requireAdmin(event) {
+  const auth = requireAuth(event);
+  if (!auth.ok) return auth;
+  if (auth.payload.role !== "admin") {
+    return { ok: false, error: json(403, { error: "Admin required" }) };
+  }
+  return auth;
 }
 
-module.exports = { sign, verify, fromEvent };
+module.exports = { json, requireAuth, requireAdmin };
