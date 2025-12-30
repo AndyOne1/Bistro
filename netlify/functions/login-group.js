@@ -1,33 +1,35 @@
-// netlify/functions/login-group.js
-// POST -> authenticate a group user and return a JWT
-// TODO: Replace placeholder verification with DB-backed credential check.
-
-const auth = require('./_auth');
-const db = require('./_db');
-const bcrypt = require('bcryptjs'); // included in package.json dependencies
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const { getSql } = require("./_db");
+const { json } = require("./_auth");
 
 exports.handler = async (event) => {
-  try {
-    if (event.httpMethod !== 'POST') return { statusCode: 405, body: 'Method Not Allowed' };
-    const body = event.body ? JSON.parse(event.body) : {};
-    const { username, password } = body;
-    if (!username || !password) return { statusCode: 400, body: JSON.stringify({ error: 'username and password required' }) };
+  if (event.httpMethod !== "POST") return json(405, { error: "Method not allowed" });
 
-    // If DB available, check credentials there
-    if (typeof db.query === 'function') {
-      const res = await db.query('SELECT id, username, password_hash, role FROM users WHERE username = $1 AND type = $2 LIMIT 1', [username, 'group']);
-      const user = (res.rows && res.rows[0]) || null;
-      if (!user) return { statusCode: 401, body: JSON.stringify({ error: 'invalid credentials' }) };
-      const match = await bcrypt.compare(password, user.password_hash);
-      if (!match) return { statusCode: 401, body: JSON.stringify({ error: 'invalid credentials' }) };
+  let body = {};
+  try { body = JSON.parse(event.body || "{}"); } catch {}
 
-      const token = auth.sign({ sub: user.id, username: user.username, role: user.role || 'group' });
-      return { statusCode: 200, body: JSON.stringify({ token }) };
-    }
+  const groupId = String(body.groupId || "");
+  const password = String(body.password || "");
+  const name = String(body.name || "").trim();
 
-    // Fallback: not implemented without DB
-    return { statusCode: 501, body: JSON.stringify({ error: 'Not implemented: configure DB to enable group login' }) };
-  } catch (err) {
-    return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
+  if (!groupId || !password || !name) {
+    return json(400, { error: "groupId, password, name required" });
   }
+
+  const sql = getSql();
+  const rows = await sql`SELECT id, name, password_hash FROM groups WHERE id = ${groupId} LIMIT 1`;
+  if (!rows.length) return json(401, { error: "Invalid credentials" });
+
+  const group = rows[0];
+  const ok = await bcrypt.compare(password, group.password_hash);
+  if (!ok) return json(401, { error: "Invalid credentials" });
+
+  const token = jwt.sign(
+    { role: "user", name, groupId: group.id, groupName: group.name },
+    process.env.JWT_SECRET,
+    { expiresIn: "12h" }
+  );
+
+  return json(200, { token, role: "user", name, groupName: group.name });
 };
