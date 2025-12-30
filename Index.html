@@ -108,7 +108,7 @@
 
       const [givenAmount, setGivenAmount] = useState(0);
 
-      // dailySales now keyed by item id (more robust)
+      // dailySales keyed by item id
       // shape: { [id]: { id, name, count, revenue } }
       const [dailySales, setDailySales] = useState({});
       const [savedDays, setSavedDays] = useState([]);
@@ -144,7 +144,6 @@
             const values = Object.values(parsed);
             const looksLikeOld = values.length && values[0] && values[0].count !== undefined && values[0].revenue !== undefined && !values[0].id;
             if (looksLikeOld) {
-              // old: { [name]: {count,revenue} } -> new: { [id]: {id,name,count,revenue} }
               const converted = {};
               Object.entries(parsed).forEach(([name, data]) => {
                 const id = `legacy-${name}`;
@@ -192,9 +191,7 @@
           const key = item.id || `legacy-${item.name}`;
           if (!next[key]) next[key] = { id: key, name: item.name, count: 0, revenue: 0 };
 
-          // keep a display name snapshot (useful if item name changes later)
           next[key].name = item.name;
-
           next[key].count += 1;
           next[key].revenue += item.price;
           return next;
@@ -318,12 +315,35 @@
         setSavedDays((prev) => prev.filter((_, i) => i !== index));
       };
 
+      // NEU: Leeren macht auch dailySales rückgängig (wie kompletter Undo)
+      const clearTransaction = () => {
+        if (currentTransaction.length === 0) return;
+
+        setDailySales((salesPrev) => {
+          const next = { ...salesPrev };
+
+          for (const item of currentTransaction) {
+            const key = item.id || `legacy-${item.name}`;
+            if (!next[key]) continue;
+
+            next[key].count -= 1;
+            next[key].revenue -= item.price;
+
+            if (next[key].count <= 0) delete next[key];
+          }
+
+          return next;
+        });
+
+        setCurrentTransaction([]);
+        setGivenAmount(0);
+      };
+
       const stats = getDayStats();
 
       // Fixed bottom panel sizing
-      // Keep enough padding at page bottom so content isn't hidden behind panel.
-      const bottomPanelHeightClass = "h-72"; // fixed size
-      const bottomPaddingClass = "pb-80"; // must be >= panel height
+      const bottomPanelHeightClass = "h-72";
+      const bottomPaddingClass = "pb-80";
 
       return (
         <div className={`min-h-screen bg-gray-50 p-4 ${bottomPaddingClass}`}>
@@ -428,10 +448,10 @@
                         <Undo />
                       </button>
                       <button
-                        onClick={() => { setCurrentTransaction([]); setGivenAmount(0); }}
+                        onClick={clearTransaction}
                         disabled={currentTransaction.length === 0}
                         className="px-3 py-2 bg-gray-200 rounded-lg hover:bg-gray-300 transition font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-                        title="Vorgang leeren"
+                        title="Vorgang leeren (inkl. Zählung rückgängig)"
                       >
                         Leeren
                       </button>
@@ -616,14 +636,7 @@
                   </div>
                 </div>
 
-                <div className="mt-6 p-4 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-sm">
-                  <p className="font-semibold mb-1">Hinweis (IDs):</p>
-                  <p>
-                    Neue Artikel bekommen automatisch eine eindeutige ID. Alte Einträge werden beim Laden nachträglich
-                    migriert (falls vorhanden). Wenn du ohnehin alles neu anlegen willst, kannst du im Browser-Storage
-                    die gespeicherten Daten löschen (LocalStorage), musst es aber nicht.
-                  </p>
-                </div>
+                {/* HINWEIS-BOX ENTFERNT (rot markierter Text) */}
               </div>
             </div>
           )}
