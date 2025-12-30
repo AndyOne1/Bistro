@@ -1,18 +1,10 @@
 {
-  "name": "bistro",
-  "version": "0.1.0",
+  "name": "bistro-kasse",
   "private": true,
-  "description": "Bistro — Netlify Functions skeleton for auth, groups, and reports",
-  "scripts": {
-    "start": "netlify dev",
-    "build": "echo \"no build step\"",
-    "test": "echo \"No tests configured\" && exit 0"
-  },
+  "version": "1.0.0",
   "dependencies": {
-    "jsonwebtoken": "^9.0.0",
-    "bcryptjs": "^2.4.3"
-  },
-  "engines": {
-    "node": ">=16"
+    "@netlify/neon": "^1.0.0",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2"
   }
 }
