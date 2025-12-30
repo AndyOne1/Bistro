@@ -1,8 +1,15 @@
 const { neon } = require("@netlify/neon");
 
 function getSql() {
-  // neon() nutzt automatisch NETLIFY_DATABASE_URL* aus den Environment Variables
-  return neon();
+  const url =
+    process.env.NETLIFY_DATABASE_URL_UNPOOLED ||
+    process.env.NETLIFY_DATABASE_URL;
+
+  if (!url) {
+    throw new Error("Missing NETLIFY_DATABASE_URL (Netlify DB not configured)");
+  }
+
+  return neon(url);
 }
 
 module.exports = { getSql };
