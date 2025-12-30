@@ -13,9 +13,9 @@
   <div id="root"></div>
 
   <script type="text/babel">
-    const { useState, useEffect } = React;
+    const { useState, useEffect, useMemo } = React;
 
-    // Lucide Icons als einfache SVG Components
+    // Icons (simple SVG components)
     const Settings = () => (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <circle cx="12" cy="12" r="3"></circle>
@@ -60,18 +60,64 @@
       </svg>
     );
 
+    const Pencil = () => (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M12 20h9"></path>
+        <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"></path>
+      </svg>
+    );
+
+    const Check = () => (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M20 6L9 17l-5-5"></path>
+      </svg>
+    );
+
+    // Domain constants
     const CATEGORIES = ["Getränke", "Snacks", "Eis"];
+
+    // Central styling map (category colors)
+    const CATEGORY_STYLES = {
+      Getränke: {
+        button: "bg-blue-500 hover:bg-blue-600",
+        badge: "bg-blue-50 text-blue-700 border-blue-200",
+      },
+      Snacks: {
+        button: "bg-amber-500 hover:bg-amber-600",
+        badge: "bg-amber-50 text-amber-800 border-amber-200",
+      },
+      Eis: {
+        button: "bg-fuchsia-500 hover:bg-fuchsia-600",
+        badge: "bg-fuchsia-50 text-fuchsia-800 border-fuchsia-200",
+      },
+    };
+
+    // Helpers
+    const newId = () =>
+      (crypto && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+    const asMoney = (n) => (Number(n) || 0).toFixed(2);
 
     const BistroKasse = () => {
       const [articles, setArticles] = useState([]);
       const [currentTransaction, setCurrentTransaction] = useState([]);
+
       const [showSettings, setShowSettings] = useState(false);
       const [showPayment, setShowPayment] = useState(false);
       const [showDayReport, setShowDayReport] = useState(false);
+
       const [givenAmount, setGivenAmount] = useState(0);
+
+      // dailySales now keyed by item id (more robust)
+      // shape: { [id]: { id, name, count, revenue } }
       const [dailySales, setDailySales] = useState({});
       const [savedDays, setSavedDays] = useState([]);
+
       const [newArticle, setNewArticle] = useState({ name: "", price: "", category: "Getränke" });
+
+      // Editing state
+      const [editingId, setEditingId] = useState(null);
+      const [editDraft, setEditDraft] = useState({ name: "", price: "", category: "Getränke" });
 
       useEffect(() => {
         const savedArticles = localStorage.getItem("bistro-articles");
@@ -79,18 +125,38 @@
         const savedDaysData = localStorage.getItem("bistro-saved-days");
 
         if (savedArticles) {
-          // Backward-compatible: falls alte Artikel ohne category vorhanden sind -> Default setzen
           const parsed = JSON.parse(savedArticles);
           const migrated = Array.isArray(parsed)
             ? parsed.map((a) => ({
-                name: a.name,
+                id: a.id || newId(),
+                name: a.name || "",
                 price: typeof a.price === "number" ? a.price : parseFloat(a.price),
                 category: a.category && CATEGORIES.includes(a.category) ? a.category : "Getränke",
-              }))
+              })).filter((a) => a.name && !Number.isNaN(a.price))
             : [];
           setArticles(migrated);
         }
-        if (savedDailySales) setDailySales(JSON.parse(savedDailySales));
+
+        if (savedDailySales) {
+          const parsed = JSON.parse(savedDailySales);
+          // Backward-compatible migration: if keyed by name, convert best-effort
+          if (parsed && !Array.isArray(parsed) && typeof parsed === "object") {
+            const values = Object.values(parsed);
+            const looksLikeOld = values.length && values[0] && values[0].count !== undefined && values[0].revenue !== undefined && !values[0].id;
+            if (looksLikeOld) {
+              // old: { [name]: {count,revenue} } -> new: { [id]: {id,name,count,revenue} }
+              const converted = {};
+              Object.entries(parsed).forEach(([name, data]) => {
+                const id = `legacy-${name}`;
+                converted[id] = { id, name, count: data.count || 0, revenue: data.revenue || 0 };
+              });
+              setDailySales(converted);
+            } else {
+              setDailySales(parsed);
+            }
+          }
+        }
+
         if (savedDaysData) setSavedDays(JSON.parse(savedDaysData));
       }, []);
 
@@ -106,63 +172,105 @@
         localStorage.setItem("bistro-saved-days", JSON.stringify(savedDays));
       }, [savedDays]);
 
-      const addToTransaction = (article) => {
-        setCurrentTransaction([...currentTransaction, article]);
+      const pfandInItem = useMemo(() => ({ id: "pfand_in", name: "Pfand Einnahme", price: 0.25, category: "Pfand" }), []);
+      const pfandOutItem = useMemo(() => ({ id: "pfand_out", name: "Pfand Ausgabe", price: -0.25, category: "Pfand" }), []);
 
-        const newDailySales = { ...dailySales };
-        if (!newDailySales[article.name]) {
-          newDailySales[article.name] = { count: 0, revenue: 0 };
+      const categorizedArticles = useMemo(() => {
+        const grouped = CATEGORIES.reduce((acc, cat) => (acc[cat] = [], acc), {});
+        for (const a of articles) {
+          const cat = (a.category && CATEGORIES.includes(a.category)) ? a.category : "Getränke";
+          grouped[cat].push(a);
         }
-        newDailySales[article.name].count += 1;
-        newDailySales[article.name].revenue += article.price;
-        setDailySales(newDailySales);
+        return grouped;
+      }, [articles]);
+
+      const addToTransaction = (item) => {
+        setCurrentTransaction((prev) => [...prev, item]);
+
+        setDailySales((prev) => {
+          const next = { ...prev };
+          const key = item.id || `legacy-${item.name}`;
+          if (!next[key]) next[key] = { id: key, name: item.name, count: 0, revenue: 0 };
+
+          // keep a display name snapshot (useful if item name changes later)
+          next[key].name = item.name;
+
+          next[key].count += 1;
+          next[key].revenue += item.price;
+          return next;
+        });
       };
 
       const undoLastItem = () => {
-        if (currentTransaction.length === 0) return;
+        setCurrentTransaction((prev) => {
+          if (prev.length === 0) return prev;
+          const last = prev[prev.length - 1];
 
-        const lastItem = currentTransaction[currentTransaction.length - 1];
-        setCurrentTransaction(currentTransaction.slice(0, -1));
+          setDailySales((salesPrev) => {
+            const next = { ...salesPrev };
+            const key = last.id || `legacy-${last.name}`;
+            if (next[key]) {
+              next[key].count -= 1;
+              next[key].revenue -= last.price;
+              if (next[key].count <= 0) delete next[key];
+            }
+            return next;
+          });
 
-        const newDailySales = { ...dailySales };
-        if (newDailySales[lastItem.name]) {
-          newDailySales[lastItem.name].count -= 1;
-          newDailySales[lastItem.name].revenue -= lastItem.price;
-
-          if (newDailySales[lastItem.name].count <= 0) {
-            delete newDailySales[lastItem.name];
-          }
-        }
-        setDailySales(newDailySales);
+          return prev.slice(0, -1);
+        });
       };
 
-      const calculateTotal = () => {
-        return currentTransaction.reduce((sum, item) => sum + item.price, 0);
-      };
+      const calculateTotal = () => currentTransaction.reduce((sum, item) => sum + item.price, 0);
 
       const handleAddArticle = () => {
-        if (newArticle.name && newArticle.price) {
-          const price = parseFloat(newArticle.price);
-          if (!isNaN(price)) {
-            const category = CATEGORIES.includes(newArticle.category) ? newArticle.category : "Getränke";
-            setArticles([...articles, { name: newArticle.name, price, category }]);
-            setNewArticle({ name: "", price: "", category: "Getränke" });
-          }
-        }
+        if (!newArticle.name || !newArticle.price) return;
+        const price = parseFloat(newArticle.price);
+        if (Number.isNaN(price)) return;
+
+        const category = CATEGORIES.includes(newArticle.category) ? newArticle.category : "Getränke";
+        const article = { id: newId(), name: newArticle.name, price, category };
+
+        setArticles((prev) => [...prev, article]);
+        setNewArticle({ name: "", price: "", category: "Getränke" });
       };
 
-      const handleDeleteArticle = (index) => {
-        const newArticles = articles.filter((_, i) => i !== index);
-        setArticles(newArticles);
+      const handleDeleteArticle = (id) => {
+        setArticles((prev) => prev.filter((a) => a.id !== id));
       };
 
-      const addToGivenAmount = (amount) => {
-        setGivenAmount(givenAmount + amount);
+      const startEdit = (article) => {
+        setEditingId(article.id);
+        setEditDraft({ name: article.name, price: String(article.price), category: article.category || "Getränke" });
       };
 
-      const calculateChange = () => {
-        return givenAmount - calculateTotal();
+      const cancelEdit = () => {
+        setEditingId(null);
+        setEditDraft({ name: "", price: "", category: "Getränke" });
       };
+
+      const saveEdit = () => {
+        if (!editingId) return;
+        if (!editDraft.name || !editDraft.price) return;
+
+        const price = parseFloat(editDraft.price);
+        if (Number.isNaN(price)) return;
+
+        const category = CATEGORIES.includes(editDraft.category) ? editDraft.category : "Getränke";
+
+        setArticles((prev) =>
+          prev.map((a) =>
+            a.id === editingId
+              ? { ...a, name: editDraft.name, price, category }
+              : a
+          )
+        );
+
+        cancelEdit();
+      };
+
+      const addToGivenAmount = (amount) => setGivenAmount((prev) => prev + amount);
+      const calculateChange = () => givenAmount - calculateTotal();
 
       const completeTransaction = () => {
         setCurrentTransaction([]);
@@ -170,31 +278,15 @@
         setShowPayment(false);
       };
 
-      const closeDay = () => {
-        const today = new Date().toLocaleDateString("de-DE");
-        const dayData = {
-          date: today,
-          sales: { ...dailySales },
-          totalRevenue: Object.values(dailySales).reduce((sum, item) => sum + item.revenue, 0),
-        };
-
-        setSavedDays([dayData, ...savedDays]);
-        setDailySales({});
-      };
-
       const getDayStats = () => {
         let pfandIn = 0;
         let pfandOut = 0;
         let merchandise = 0;
 
-        Object.entries(dailySales).forEach(([name, data]) => {
-          if (name === "Pfand Einnahme") {
-            pfandIn = data.revenue;
-          } else if (name === "Pfand Ausgabe") {
-            pfandOut = data.revenue;
-          } else {
-            merchandise += data.revenue;
-          }
+        Object.values(dailySales).forEach((data) => {
+          if (data.id === "pfand_in" || data.name === "Pfand Einnahme") pfandIn += data.revenue;
+          else if (data.id === "pfand_out" || data.name === "Pfand Ausgabe") pfandOut += data.revenue;
+          else merchandise += data.revenue;
         });
 
         return {
@@ -206,16 +298,35 @@
         };
       };
 
+      const closeDay = () => {
+        const today = new Date().toLocaleDateString("de-DE");
+        const totalRevenue = Object.values(dailySales).reduce((sum, item) => sum + item.revenue, 0);
+
+        const dayData = {
+          date: today,
+          sales: { ...dailySales },
+          totalRevenue,
+        };
+
+        setSavedDays((prev) => [dayData, ...prev]);
+        setDailySales({});
+      };
+
+      const deleteSavedDay = (index) => {
+        const ok = window.confirm("Diesen Tag wirklich löschen?");
+        if (!ok) return;
+        setSavedDays((prev) => prev.filter((_, i) => i !== index));
+      };
+
       const stats = getDayStats();
 
-      // Artikel nach Kategorien gruppieren (Pfand bleibt separat)
-      const categorizedArticles = CATEGORIES.reduce((acc, cat) => {
-        acc[cat] = articles.filter((a) => (a.category || "Getränke") === cat);
-        return acc;
-      }, {});
+      // Fixed bottom panel sizing
+      // Keep enough padding at page bottom so content isn't hidden behind panel.
+      const bottomPanelHeightClass = "h-72"; // fixed size
+      const bottomPaddingClass = "pb-80"; // must be >= panel height
 
       return (
-        <div className="min-h-screen bg-gray-50 p-4">
+        <div className={`min-h-screen bg-gray-50 p-4 ${bottomPaddingClass}`}>
           <div className="max-w-7xl mx-auto mb-6">
             <div className="flex justify-between items-center">
               <h1 className="text-3xl font-bold text-gray-800">Bistro Kasse</h1>
@@ -223,12 +334,14 @@
                 <button
                   onClick={() => setShowDayReport(true)}
                   className="p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition"
+                  title="Tagesabschluss"
                 >
                   <Calendar />
                 </button>
                 <button
                   onClick={() => setShowSettings(true)}
                   className="p-2 bg-gray-700 text-white rounded-lg hover:bg-gray-800 transition"
+                  title="Einstellungen"
                 >
                   <Settings />
                 </button>
@@ -236,39 +349,40 @@
             </div>
           </div>
 
-          <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2">
-              <div className="bg-white rounded-lg shadow-md p-6">
-                <h2 className="text-xl font-semibold mb-4 text-gray-700">Artikel</h2>
+          <div className="max-w-7xl mx-auto">
+            <div className="bg-white rounded-lg shadow-md p-6">
+              <h2 className="text-xl font-semibold mb-4 text-gray-700">Artikel</h2>
 
-                {/* Pfand separat */}
-                <div className="mb-6">
-                  <h3 className="text-sm font-bold uppercase tracking-wide text-gray-500 mb-2">Pfand</h3>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                    <button
-                      onClick={() => addToTransaction({ name: "Pfand Einnahme", price: 0.25, category: "Pfand" })}
-                      className="p-4 bg-green-500 text-white rounded-lg hover:bg-green-600 transition font-semibold"
-                    >
-                      Pfand Einnahme<br />+0,25€
-                    </button>
-                    <button
-                      onClick={() => addToTransaction({ name: "Pfand Ausgabe", price: -0.25, category: "Pfand" })}
-                      className="p-4 bg-red-500 text-white rounded-lg hover:bg-red-600 transition font-semibold"
-                    >
-                      Pfand Ausgabe<br />-0,25€
-                    </button>
-                  </div>
+              {/* Pfand separat */}
+              <div className="mb-6">
+                <h3 className="text-sm font-bold uppercase tracking-wide text-gray-500 mb-2">Pfand</h3>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  <button
+                    onClick={() => addToTransaction(pfandInItem)}
+                    className="p-4 bg-green-500 text-white rounded-lg hover:bg-green-600 transition font-semibold"
+                  >
+                    Pfand Einnahme<br />+0,25€
+                  </button>
+                  <button
+                    onClick={() => addToTransaction(pfandOutItem)}
+                    className="p-4 bg-red-500 text-white rounded-lg hover:bg-red-600 transition font-semibold"
+                  >
+                    Pfand Ausgabe<br />-0,25€
+                  </button>
                 </div>
+              </div>
 
-                {/* Kategorien */}
-                <div className="space-y-6">
-                  {CATEGORIES.map((cat) => (
+              {/* Kategorien */}
+              <div className="space-y-6">
+                {CATEGORIES.map((cat) => {
+                  const styles = CATEGORY_STYLES[cat];
+                  return (
                     <div key={cat}>
                       <div className="flex items-center justify-between mb-2">
-                        <h3 className="text-sm font-bold uppercase tracking-wide text-gray-500">{cat}</h3>
-                        <span className="text-xs text-gray-400">
-                          {categorizedArticles[cat].length} Artikel
-                        </span>
+                        <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full border text-sm font-semibold ${styles.badge}`}>
+                          {cat}
+                        </div>
+                        <span className="text-xs text-gray-400">{categorizedArticles[cat].length} Artikel</span>
                       </div>
 
                       {categorizedArticles[cat].length === 0 ? (
@@ -277,73 +391,95 @@
                         </div>
                       ) : (
                         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                          {categorizedArticles[cat].map((article, index) => (
+                          {categorizedArticles[cat].map((article) => (
                             <button
-                              key={`${cat}-${article.name}-${index}`}
+                              key={article.id}
                               onClick={() => addToTransaction(article)}
-                              className="p-4 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition font-semibold"
+                              className={`p-4 text-white rounded-lg transition font-semibold ${styles.button}`}
                             >
                               {article.name}<br />
                               {article.price > 0 ? "+" : ""}
-                              {article.price.toFixed(2)}€
+                              {asMoney(article.price)}€
                             </button>
                           ))}
                         </div>
                       )}
                     </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="lg:col-span-1">
-              <div className="bg-white rounded-lg shadow-md p-6">
-                <div className="flex justify-between items-center mb-4">
-                  <h2 className="text-xl font-semibold text-gray-700">Aktueller Vorgang</h2>
-                  <button
-                    onClick={undoLastItem}
-                    disabled={currentTransaction.length === 0}
-                    className="p-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition disabled:bg-gray-300 disabled:cursor-not-allowed"
-                    title="Letzten Eintrag rückgängig machen"
-                  >
-                    <Undo />
-                  </button>
-                </div>
-
-                <div className="mb-4 max-h-64 overflow-y-auto">
-                  {currentTransaction.length === 0 ? (
-                    <p className="text-gray-400 text-center py-8">Keine Artikel</p>
-                  ) : (
-                    currentTransaction.map((item, index) => (
-                      <div key={index} className="flex justify-between py-2 border-b">
-                        <span className="text-gray-700">{item.name}</span>
-                        <span className={`font-semibold ${item.price >= 0 ? "text-green-600" : "text-red-600"}`}>
-                          {item.price > 0 ? "+" : ""}
-                          {item.price.toFixed(2)}€
-                        </span>
-                      </div>
-                    ))
-                  )}
-                </div>
-
-                <div className="border-t-2 pt-4 mb-4">
-                  <div className="flex justify-between items-center">
-                    <span className="text-xl font-bold text-gray-800">Gesamt:</span>
-                    <span className="text-2xl font-bold text-blue-600">{calculateTotal().toFixed(2)}€</span>
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => setShowPayment(true)}
-                  disabled={currentTransaction.length === 0}
-                  className="w-full py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition disabled:bg-gray-300 disabled:cursor-not-allowed"
-                >
-                  Zur Bezahlung
-                </button>
+                  );
+                })}
               </div>
             </div>
           </div>
 
+          {/* Fixed bottom "Aktueller Vorgang" panel */}
+          <div className="fixed left-0 right-0 bottom-0 z-40 p-3">
+            <div className="max-w-7xl mx-auto">
+              <div className={`bg-white rounded-xl shadow-2xl border ${bottomPanelHeightClass} overflow-hidden`}>
+                <div className="h-full flex flex-col">
+                  <div className="px-4 py-3 border-b flex items-center justify-between">
+                    <h2 className="text-lg font-semibold text-gray-700">Aktueller Vorgang</h2>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={undoLastItem}
+                        disabled={currentTransaction.length === 0}
+                        className="p-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition disabled:bg-gray-300 disabled:cursor-not-allowed"
+                        title="Letzten Eintrag rückgängig machen"
+                      >
+                        <Undo />
+                      </button>
+                      <button
+                        onClick={() => { setCurrentTransaction([]); setGivenAmount(0); }}
+                        disabled={currentTransaction.length === 0}
+                        className="px-3 py-2 bg-gray-200 rounded-lg hover:bg-gray-300 transition font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Vorgang leeren"
+                      >
+                        Leeren
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Scrollable list */}
+                  <div className="flex-1 overflow-y-auto px-4 py-2">
+                    {currentTransaction.length === 0 ? (
+                      <p className="text-gray-400 text-center py-8">Keine Artikel</p>
+                    ) : (
+                      currentTransaction.map((item, index) => (
+                        <div key={`${item.id || item.name}-${index}`} className="flex justify-between py-2 border-b">
+                          <span className="text-gray-700">{item.name}</span>
+                          <span className={`font-semibold ${item.price >= 0 ? "text-green-600" : "text-red-600"}`}>
+                            {item.price > 0 ? "+" : ""}
+                            {asMoney(item.price)}€
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  {/* Total + Pay always visible */}
+                  <div className="px-4 py-3 border-t bg-white">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-lg font-bold text-gray-800">Gesamt:</span>
+                      <span className="text-2xl font-bold text-blue-600">{asMoney(calculateTotal())}€</span>
+                    </div>
+
+                    <button
+                      onClick={() => setShowPayment(true)}
+                      disabled={currentTransaction.length === 0}
+                      className="w-full py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition disabled:bg-gray-300 disabled:cursor-not-allowed"
+                    >
+                      Zur Bezahlung
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <p className="text-xs text-gray-400 mt-2 text-center">
+                Hinweis: Der Vorgang bleibt unten sichtbar; die Artikelliste kann unabhängig gescrollt werden.
+              </p>
+            </div>
+          </div>
+
+          {/* Settings modal */}
           {showSettings && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
               <div className="bg-white rounded-lg max-w-2xl w-full max-h-[80vh] overflow-y-auto p-6">
@@ -394,39 +530,112 @@
                 <div>
                   <h3 className="text-lg font-semibold mb-3 text-gray-700">Vorhandene Artikel</h3>
                   <div className="space-y-2">
-                    {articles.map((article, index) => (
-                      <div key={index} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
-                        <div className="min-w-0">
-                          <div className="font-medium text-gray-700 truncate">{article.name}</div>
-                          <div className="text-xs text-gray-500">{article.category || "Getränke"}</div>
+                    {articles.map((article) => {
+                      const isEditing = editingId === article.id;
+                      const badge = CATEGORY_STYLES[article.category || "Getränke"]?.badge || "bg-gray-50 text-gray-700 border-gray-200";
+                      return (
+                        <div key={article.id} className="p-3 bg-gray-50 rounded-lg">
+                          {!isEditing ? (
+                            <div className="flex justify-between items-center gap-3">
+                              <div className="min-w-0">
+                                <div className="font-medium text-gray-700 truncate">{article.name}</div>
+                                <div className="mt-1 flex items-center gap-2">
+                                  <span className={`text-xs px-2 py-0.5 rounded-full border ${badge}`}>
+                                    {article.category || "Getränke"}
+                                  </span>
+                                  <span className="text-blue-600 font-semibold">{asMoney(article.price)}€</span>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => startEdit(article)}
+                                  className="px-3 py-2 bg-white border rounded-lg hover:bg-gray-100 transition"
+                                  title="Bearbeiten"
+                                >
+                                  <Pencil />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteArticle(article.id)}
+                                  className="px-3 py-2 bg-white border rounded-lg hover:bg-red-50 text-red-600 transition"
+                                  title="Löschen"
+                                >
+                                  <Trash2 />
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="space-y-3">
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                                <input
+                                  type="text"
+                                  value={editDraft.name}
+                                  onChange={(e) => setEditDraft({ ...editDraft, name: e.target.value })}
+                                  className="px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                />
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={editDraft.price}
+                                  onChange={(e) => setEditDraft({ ...editDraft, price: e.target.value })}
+                                  className="px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                />
+                                <select
+                                  value={editDraft.category}
+                                  onChange={(e) => setEditDraft({ ...editDraft, category: e.target.value })}
+                                  className="px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                                >
+                                  {CATEGORIES.map((cat) => (
+                                    <option key={cat} value={cat}>{cat}</option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={saveEdit}
+                                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition inline-flex items-center gap-2"
+                                >
+                                  <Check /> Speichern
+                                </button>
+                                <button
+                                  onClick={cancelEdit}
+                                  className="px-4 py-2 bg-gray-400 text-white rounded-lg hover:bg-gray-500 transition inline-flex items-center gap-2"
+                                >
+                                  <X /> Abbrechen
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </div>
-                        <div className="flex items-center gap-3">
-                          <span className="text-blue-600 font-semibold">{article.price.toFixed(2)}€</span>
-                          <button onClick={() => handleDeleteArticle(index)} className="text-red-500 hover:text-red-700" title="Löschen">
-                            <Trash2 />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
+
                     {articles.length === 0 && (
                       <p className="text-gray-400 text-center py-6">Noch keine Artikel angelegt</p>
                     )}
                   </div>
                 </div>
+
+                <div className="mt-6 p-4 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-sm">
+                  <p className="font-semibold mb-1">Hinweis (IDs):</p>
+                  <p>
+                    Neue Artikel bekommen automatisch eine eindeutige ID. Alte Einträge werden beim Laden nachträglich
+                    migriert (falls vorhanden). Wenn du ohnehin alles neu anlegen willst, kannst du im Browser-Storage
+                    die gespeicherten Daten löschen (LocalStorage), musst es aber nicht.
+                  </p>
+                </div>
               </div>
             </div>
           )}
 
+          {/* Payment modal */}
           {showPayment && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
               <div className="bg-white rounded-lg max-w-md w-full p-6">
                 <div className="flex justify-between items-center mb-6">
                   <h2 className="text-2xl font-bold text-gray-800">Bezahlung</h2>
                   <button
-                    onClick={() => {
-                      setShowPayment(false);
-                      setGivenAmount(0);
-                    }}
+                    onClick={() => { setShowPayment(false); setGivenAmount(0); }}
                     className="text-gray-500 hover:text-gray-700"
                   >
                     <X />
@@ -436,18 +645,18 @@
                 <div className="mb-6">
                   <div className="bg-gray-100 p-4 rounded-lg mb-4">
                     <p className="text-gray-600 text-sm">Zu bezahlen:</p>
-                    <p className="text-3xl font-bold text-gray-800">{calculateTotal().toFixed(2)}€</p>
+                    <p className="text-3xl font-bold text-gray-800">{asMoney(calculateTotal())}€</p>
                   </div>
 
                   <div className="bg-blue-50 p-4 rounded-lg mb-4">
                     <p className="text-gray-600 text-sm">Gegeben:</p>
-                    <p className="text-2xl font-bold text-blue-600">{givenAmount.toFixed(2)}€</p>
+                    <p className="text-2xl font-bold text-blue-600">{asMoney(givenAmount)}€</p>
                   </div>
 
                   <div className={`p-4 rounded-lg mb-4 ${calculateChange() >= 0 ? "bg-green-50" : "bg-red-50"}`}>
                     <p className="text-gray-600 text-sm">Rückgeld:</p>
                     <p className={`text-2xl font-bold ${calculateChange() >= 0 ? "text-green-600" : "text-red-600"}`}>
-                      {calculateChange().toFixed(2)}€
+                      {asMoney(calculateChange())}€
                     </p>
                   </div>
                 </div>
@@ -492,6 +701,7 @@
             </div>
           )}
 
+          {/* Day report modal */}
           {showDayReport && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
               <div className="bg-white rounded-lg max-w-3xl w-full max-h-[80vh] overflow-y-auto p-6">
@@ -508,9 +718,9 @@
                   <div className="mb-4">
                     <h4 className="font-semibold text-gray-700 mb-2">Verkaufte Artikel:</h4>
                     <div className="space-y-1">
-                      {Object.entries(dailySales).map(([name, data]) => (
-                        <div key={name} className="flex justify-between text-gray-600">
-                          <span>{name}:</span>
+                      {Object.values(dailySales).map((data) => (
+                        <div key={data.id} className="flex justify-between text-gray-600">
+                          <span>{data.name}:</span>
                           <span className="font-semibold">{data.count}x</span>
                         </div>
                       ))}
@@ -523,25 +733,25 @@
                   <div className="border-t pt-4 space-y-2">
                     <div className="flex justify-between">
                       <span className="text-gray-600">Pfand Einnahmen:</span>
-                      <span className="font-semibold text-green-600">+{stats.pfandIn.toFixed(2)}€</span>
+                      <span className="font-semibold text-green-600">+{asMoney(stats.pfandIn)}€</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">Pfand Ausgaben:</span>
-                      <span className="font-semibold text-red-600">{stats.pfandOut.toFixed(2)}€</span>
+                      <span className="font-semibold text-red-600">{asMoney(stats.pfandOut)}€</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">Pfand Bilanz:</span>
                       <span className={`font-semibold ${stats.pfandBalance >= 0 ? "text-green-600" : "text-red-600"}`}>
-                        {stats.pfandBalance.toFixed(2)}€
+                        {asMoney(stats.pfandBalance)}€
                       </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">Warenverkauf:</span>
-                      <span className="font-semibold text-blue-600">{stats.merchandise.toFixed(2)}€</span>
+                      <span className="font-semibold text-blue-600">{asMoney(stats.merchandise)}€</span>
                     </div>
                     <div className="flex justify-between pt-2 border-t-2">
                       <span className="text-xl font-bold text-gray-800">Gesamteinnahmen:</span>
-                      <span className="text-2xl font-bold text-blue-600">{stats.total.toFixed(2)}€</span>
+                      <span className="text-2xl font-bold text-blue-600">{asMoney(stats.total)}€</span>
                     </div>
                   </div>
 
@@ -562,16 +772,30 @@
                     <div className="space-y-4">
                       {savedDays.map((day, index) => (
                         <div key={index} className="p-4 bg-gray-50 rounded-lg">
-                          <div className="flex justify-between items-center mb-3">
-                            <h4 className="font-bold text-gray-800">{day.date}</h4>
-                            <span className="text-lg font-bold text-blue-600">{day.totalRevenue.toFixed(2)}€</span>
+                          <div className="flex justify-between items-center mb-3 gap-3">
+                            <div>
+                              <h4 className="font-bold text-gray-800">{day.date}</h4>
+                              <div className="text-xs text-gray-500">Archiv-Eintrag #{savedDays.length - index}</div>
+                            </div>
+
+                            <div className="flex items-center gap-3">
+                              <span className="text-lg font-bold text-blue-600">{asMoney(day.totalRevenue)}€</span>
+                              <button
+                                onClick={() => deleteSavedDay(index)}
+                                className="px-3 py-2 bg-white border rounded-lg hover:bg-red-50 text-red-600 transition"
+                                title="Diesen Tag löschen"
+                              >
+                                <Trash2 />
+                              </button>
+                            </div>
                           </div>
+
                           <div className="text-sm space-y-1">
-                            {Object.entries(day.sales).map(([name, data]) => (
-                              <div key={name} className="flex justify-between text-gray-600">
-                                <span>{name}:</span>
+                            {day.sales && Object.values(day.sales).map((data) => (
+                              <div key={data.id || data.name} className="flex justify-between text-gray-600">
+                                <span>{data.name}:</span>
                                 <span>
-                                  {data.count}x ({data.revenue.toFixed(2)}€)
+                                  {data.count}x ({asMoney(data.revenue)}€)
                                 </span>
                               </div>
                             ))}
@@ -581,6 +805,7 @@
                     </div>
                   )}
                 </div>
+
               </div>
             </div>
           )}
