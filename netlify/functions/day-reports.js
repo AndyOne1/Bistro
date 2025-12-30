@@ -1,48 +1,58 @@
-// netlify/functions/day-reports.js
-// GET -> fetch reports (optionally by date)
-// POST -> create a report (requires authenticated user)
-// TODO: Wire into DB and add validation.
-
-const db = require('./_db');
-const auth = require('./_auth');
+const { getSql } = require("./_db");
+const { json, requireAuth, requireAdmin } = require("./_auth");
 
 exports.handler = async (event) => {
-  try {
-    if (event.httpMethod === 'GET') {
-      const params = event.queryStringParameters || {};
-      const date = params.date; // optional ISO date filter
+  const sql = getSql();
 
-      if (typeof db.query === 'function') {
-        if (date) {
-          const res = await db.query('SELECT * FROM reports WHERE date = $1 ORDER BY created_at DESC', [date]);
-          return { statusCode: 200, body: JSON.stringify({ reports: res.rows }) };
-        } else {
-          const res = await db.query('SELECT * FROM reports ORDER BY date DESC, created_at DESC LIMIT 100', []);
-          return { statusCode: 200, body: JSON.stringify({ reports: res.rows }) };
-        }
-      }
+  if (event.httpMethod === "GET") {
+    const auth = requireAuth(event);
+    if (!auth.ok) return auth.error;
 
-      return { statusCode: 200, body: JSON.stringify({ reports: [], message: 'DB not configured' }) };
-    }
-
-    if (event.httpMethod === 'POST') {
-      const user = auth.fromEvent(event);
-      if (!user) return { statusCode: 401, body: JSON.stringify({ error: 'authentication required' }) };
-
-      const body = event.body ? JSON.parse(event.body) : {};
-      const { date, items } = body;
-      if (!date || !Array.isArray(items)) return { statusCode: 400, body: JSON.stringify({ error: 'date and items[] required' }) };
-
-      if (typeof db.query === 'function') {
-        const res = await db.query('INSERT INTO reports(author_id, date, data) VALUES($1, $2, $3) RETURNING *', [user.sub, date, { items }]);
-        return { statusCode: 201, body: JSON.stringify({ report: res.rows[0] }) };
-      }
-
-      return { statusCode: 201, body: JSON.stringify({ message: 'not persisted: DB not configured', draft: { author: user.username || user.sub, date, items } }) };
-    }
-
-    return { statusCode: 405, body: 'Method Not Allowed' };
-  } catch (err) {
-    return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
+    const rows = await sql`
+      SELECT id, created_at, day_label, submitted_by, group_name, total_revenue, sales_json
+      FROM day_reports
+      ORDER BY created_at DESC
+      LIMIT 200
+    `;
+    return json(200, { reports: rows });
   }
+
+  if (event.httpMethod === "POST") {
+    const auth = requireAuth(event);
+    if (!auth.ok) return auth.error;
+
+    let body = {};
+    try { body = JSON.parse(event.body || "{}"); } catch {}
+
+    const day_label = String(body.day_label || "").trim();
+    const total_revenue = Number(body.total_revenue);
+    const sales_json = body.sales_json;
+
+    if (!day_label || Number.isNaN(total_revenue) || !sales_json) {
+      return json(400, { error: "day_label, total_revenue, sales_json required" });
+    }
+
+    const submitted_by = auth.payload.name;
+    const group_name = auth.payload.groupName || "Unbekannt";
+
+    const rows = await sql`
+      INSERT INTO day_reports (day_label, submitted_by, group_name, total_revenue, sales_json)
+      VALUES (${day_label}, ${total_revenue}, ${submitted_by}, ${group_name}, ${sql.json(sales_json)})
+      RETURNING id
+    `;
+    return json(200, { ok: true, id: rows[0].id });
+  }
+
+  if (event.httpMethod === "DELETE") {
+    const admin = requireAdmin(event);
+    if (!admin.ok) return admin.error;
+
+    const id = (event.queryStringParameters && event.queryStringParameters.id) ? String(event.queryStringParameters.id) : "";
+    if (!id) return json(400, { error: "id required" });
+
+    await sql`DELETE FROM day_reports WHERE id = ${id}`;
+    return json(200, { ok: true });
+  }
+
+  return json(405, { error: "Method not allowed" });
 };
