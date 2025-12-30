@@ -1,38 +1,30 @@
-// netlify/functions/admin-password.js
-// POST -> set or update admin password
-// Protect this endpoint with admin auth in front (or require a secret).
-//
-// If you have a DB, implement persistence. This endpoint currently expects a DB with an "admins" or "users" table.
-
-const db = require('./_db');
-const auth = require('./_auth');
-const bcrypt = require('bcryptjs');
+const bcrypt = require("bcryptjs");
+const { getSql } = require("./_db");
+const { json, requireAdmin } = require("./_auth");
 
 exports.handler = async (event) => {
-  try {
-    if (event.httpMethod !== 'POST') return { statusCode: 405, body: 'Method Not Allowed' };
+  if (event.httpMethod !== "POST") return json(405, { error: "Method not allowed" });
 
-    // require admin JWT to perform changes (prevent anonymous calls)
-    const user = auth.fromEvent(event);
-    if (!user || user.role !== 'admin') {
-      return { statusCode: 403, body: JSON.stringify({ error: 'admin required' }) };
-    }
+  const admin = requireAdmin(event);
+  if (!admin.ok) return admin.error;
 
-    const body = event.body ? JSON.parse(event.body) : {};
-    const { targetUsername, newPassword } = body;
-    if (!targetUsername || !newPassword) return { statusCode: 400, body: JSON.stringify({ error: 'targetUsername and newPassword required' }) };
+  let body = {};
+  try { body = JSON.parse(event.body || "{}"); } catch {}
 
-    if (typeof db.query === 'function') {
-      const hash = await bcrypt.hash(newPassword, 10);
-      const res = await db.query('UPDATE users SET password_hash = $1 WHERE username = $2 AND role = $3 RETURNING id, username', [hash, targetUsername, 'admin']);
-      if (!res.rows || res.rows.length === 0) {
-        return { statusCode: 404, body: JSON.stringify({ error: 'admin user not found' }) };
-      }
-      return { statusCode: 200, body: JSON.stringify({ message: 'password updated', user: res.rows[0] }) };
-    }
+  const current = String(body.currentPassword || "");
+  const next = String(body.newPassword || "");
 
-    return { statusCode: 501, body: JSON.stringify({ error: 'Not implemented: configure DB to persist admin passwords' }) };
-  } catch (err) {
-    return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
-  }
+  if (next.length < 8) return json(400, { error: "New password min length 8" });
+
+  const sql = getSql();
+  const rows = await sql`SELECT password_hash FROM admin_settings WHERE id = 1 LIMIT 1`;
+  if (!rows.length) return json(500, { error: "Admin password not initialized" });
+
+  const ok = await bcrypt.compare(current, rows[0].password_hash);
+  if (!ok) return json(401, { error: "Current password incorrect" });
+
+  const hash = await bcrypt.hash(next, 10);
+  await sql`UPDATE admin_settings SET password_hash = ${hash}, updated_at = now() WHERE id = 1`;
+
+  return json(200, { ok: true });
 };
