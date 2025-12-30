@@ -1,40 +1,46 @@
-// netlify/functions/login-admin.js
-// POST -> authenticate an admin user and return a JWT
-// Two possible flows:
-//  - If DB configured: verify against users table
-//  - Otherwise: allow using ADMIN_USERNAME / ADMIN_PASSWORD env vars (not recommended for prod)
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const { getSql } = require("./_db");
+const { json } = require("./_auth");
 
-const auth = require('./_auth');
-const db = require('./_db');
-const bcrypt = require('bcryptjs');
+async function ensureAdminPassword(sql) {
+  const rows = await sql`SELECT password_hash FROM admin_settings WHERE id = 1`;
+  if (rows.length) return rows[0].password_hash;
+
+  const initial = process.env.ADMIN_INITIAL_PASSWORD || "";
+  if (initial.length < 8) {
+    throw new Error("ADMIN_INITIAL_PASSWORD missing or too short (min 8)");
+  }
+  const hash = await bcrypt.hash(initial, 10);
+  await sql`INSERT INTO admin_settings (id, password_hash) VALUES (1, ${hash})`;
+  return hash;
+}
 
 exports.handler = async (event) => {
+  if (event.httpMethod !== "POST") return json(405, { error: "Method not allowed" });
+
+  let body = {};
+  try { body = JSON.parse(event.body || "{}"); } catch {}
+  const password = String(body.password || "");
+
+  if (!password) return json(400, { error: "password required" });
+
+  const sql = getSql();
+  let storedHash;
   try {
-    if (event.httpMethod !== 'POST') return { statusCode: 405, body: 'Method Not Allowed' };
-    const body = event.body ? JSON.parse(event.body) : {};
-    const { username, password } = body;
-    if (!username || !password) return { statusCode: 400, body: JSON.stringify({ error: 'username and password required' }) };
-
-    if (typeof db.query === 'function') {
-      const res = await db.query('SELECT id, username, password_hash, role FROM users WHERE username = $1 AND role = $2 LIMIT 1', [username, 'admin']);
-      const user = (res.rows && res.rows[0]) || null;
-      if (!user) return { statusCode: 401, body: JSON.stringify({ error: 'invalid credentials' }) };
-      const match = await bcrypt.compare(password, user.password_hash);
-      if (!match) return { statusCode: 401, body: JSON.stringify({ error: 'invalid credentials' }) };
-      const token = auth.sign({ sub: user.id, username: user.username, role: 'admin' });
-      return { statusCode: 200, body: JSON.stringify({ token }) };
-    }
-
-    // Env var fallback (for simple setups). Set ADMIN_USERNAME and ADMIN_PASSWORD in Netlify UI.
-    const envUser = process.env.ADMIN_USERNAME;
-    const envPass = process.env.ADMIN_PASSWORD;
-    if (envUser && envPass && username === envUser && password === envPass) {
-      const token = auth.sign({ sub: 'env-admin', username, role: 'admin' });
-      return { statusCode: 200, body: JSON.stringify({ token }) };
-    }
-
-    return { statusCode: 501, body: JSON.stringify({ error: 'Not implemented: configure DB or set ADMIN_USERNAME/ADMIN_PASSWORD' }) };
-  } catch (err) {
-    return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
+    storedHash = await ensureAdminPassword(sql);
+  } catch (e) {
+    return json(500, { error: e.message });
   }
+
+  const ok = await bcrypt.compare(password, storedHash);
+  if (!ok) return json(401, { error: "Invalid credentials" });
+
+  const token = jwt.sign(
+    { role: "admin", name: "admin", groupId: null, groupName: "ADMIN" },
+    process.env.JWT_SECRET,
+    { expiresIn: "12h" }
+  );
+
+  return json(200, { token, role: "admin", name: "admin", groupName: "ADMIN" });
 };
