@@ -278,6 +278,7 @@
 
       // Admin: groups + admin password change
       const [groups, setGroups] = useState([]);
+      const [editGroup, setEditGroup] = useState({ id: "", name: "", newPassword: "" });
       const [newGroup, setNewGroup] = useState({ name: "", password: "" });
       const [adminPw, setAdminPw] = useState({ current: "", next: "" });
       const [adminMsg, setAdminMsg] = useState("");
