@@ -128,6 +128,8 @@
       changeAdminPassword(token, payload) { return this.request("admin-password", { method: "POST", token, body: payload }); },
       getDayReports(token) { return this.request("day-reports", { token }); },
       createDayReport(token, payload) { return this.request("day-reports", { method: "POST", token, body: payload }); },
+      updateGroup(token, payload) { return this.request("groups", { method: "PUT", token, body: payload }); },
+      deleteGroup(token, id) { return this.request(`groups?id=${encodeURIComponent(id)}`, { method: "DELETE", token }); },
       deleteDayReport(token, id) { return this.request(`day-reports?id=${encodeURIComponent(id)}`, { method: "DELETE", token }); },
     };
 
