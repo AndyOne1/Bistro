@@ -480,8 +480,13 @@
       };
 
       // Payment
-      const addToGivenAmount = (amount) => setGivenAmount((prev) => prev + amount);
-      const calculateChange = () => givenAmount - calculateTotal();
+      const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
+      const addToGivenAmount = (amount) =>
+        setGivenAmount((prev) => round2(prev + amount));
+
+      const calculateChange = () => round2(givenAmount - calculateTotal());
+
       const completeTransaction = () => {
         setCurrentTransaction([]);
         setGivenAmount(0);
@@ -1148,8 +1153,9 @@
                   </div>
                 </div>
 
-                <div className="grid grid-cols-5 gap-2 mb-4">
-                  {[1,2,3,4,5,6,7,8,9,10].map((amount) => (
+                {/* Euro Schnellwahl (1€–5€) */}
+                <div className="grid grid-cols-5 gap-2 mb-3">
+                  {[1,2,3,4,5].map((amount) => (
                     <button
                       key={amount}
                       onClick={() => addToGivenAmount(amount)}
@@ -1160,11 +1166,29 @@
                   ))}
                 </div>
 
+                {/* Münzen (Cent Schnellwahl) */}
+                <div className="border-t pt-3 mb-4">
+                  <div className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">
+                    Münzen
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[0.01, 0.02, 0.05, 0.10, 0.20, 0.50].map((amount) => (
+                      <button
+                        key={amount}
+                        onClick={() => addToGivenAmount(amount)}
+                        className="p-3 bg-gray-100 hover:bg-gray-200 rounded-lg font-semibold transition text-sm"
+                      >
+                        {amount.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}€
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 <input
                   type="number"
                   step="0.01"
                   value={givenAmount}
-                  onChange={(e) => setGivenAmount(parseFloat(e.target.value) || 0)}
+                  onChange={(e) => setGivenAmount(round2(parseFloat(e.target.value) || 0))}
                   placeholder="Oder Betrag eingeben..."
                   className="w-full px-4 py-3 border rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
