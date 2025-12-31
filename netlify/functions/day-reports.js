@@ -36,10 +36,16 @@ exports.handler = async (event) => {
     const group_name = auth.payload.groupName || "Unbekannt";
 
     const rows = await sql`
-      INSERT INTO day_reports (day_label, submitted_by, group_name, total_revenue, sales_json)
-      VALUES (${day_label}, ${total_revenue}, ${submitted_by}, ${group_name}, ${sql.json(sales_json)})
-      RETURNING id
-    `;
+  INSERT INTO day_reports (day_label, total_revenue, submitted_by, group_name, sales_json)
+  VALUES (
+    ${day_label},
+    ${total_revenue},
+    ${submitted_by},
+    ${group_name},
+    ${JSON.stringify(sales_json)}::jsonb
+  )
+  RETURNING id
+`;
     return json(200, { ok: true, id: rows[0].id });
   }
 
